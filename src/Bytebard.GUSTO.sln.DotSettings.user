@@ -1,0 +1,16 @@
+﻿<wpf:ResourceDictionary xml:space="preserve" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:s="clr-namespace:System;assembly=mscorlib" xmlns:ss="urn:shemas-jetbrains-com:settings-storage-xaml" xmlns:wpf="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003ABackgroundService_002Ecs_002Fl_003A_002E_002E_003F_002E_002E_003F_002E_002E_003FLibrary_003FApplication_0020Support_003FJetBrains_003FRider2025_002E1_003Fresharper_002Dhost_003FSourcesCache_003F99e8bc77d296dbfa0f7a2456d5ae46ce4fe6113f975e32755c54f64bd5a39c_003FBackgroundService_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
+	<s:String x:Key="/Default/CodeInspection/ExcludedFiles/FilesAndFoldersToSkip2/=7020124F_002D9FFC_002D4AC3_002D8F3D_002DAAB8E0240759_002Ff_003AParallel_002Ecs_002Fl_003A_002E_002E_003F_002E_002E_003F_002E_002E_003FLibrary_003FApplication_0020Support_003FJetBrains_003FRider2025_002E1_003Fresharper_002Dhost_003FDecompilerCache_003Fdecompiler_003Ff2066edaa15f427f8b1692a424aba1661d400_003F3f_003F3d9d218d_003FParallel_002Ecs/@EntryIndexedValue">ForceIncluded</s:String>
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=1ec5bef4_002D1dea_002D4083_002Da3a5_002Dc6ca474d4fa2/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" Name="JobQueueTests" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
+  &lt;TestAncestor&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueTests&lt;/TestId&gt;
+  &lt;/TestAncestor&gt;
+&lt;/SessionState&gt;</s:String>
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=c19dc007_002D1d95_002D42fc_002Dbc88_002D3a0471ac0c66/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="JobQueueTests #2" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
+  &lt;TestAncestor&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueTests&lt;/TestId&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_NoJobs_DelaysAndContinuesLoop&lt;/TestId&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_ValidJob_InvokesJobAndMarksComplete&lt;/TestId&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_JobThrowsException_LogsAndHandlesFailure&lt;/TestId&gt;
+  &lt;/TestAncestor&gt;
+&lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>
