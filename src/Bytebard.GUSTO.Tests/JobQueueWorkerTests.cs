@@ -21,7 +21,7 @@ public class JobQueueWorkerTests
 
     public class DummyService
     {
-        public SemaphoreSlim semaphoreSlim = new SemaphoreSlim(0, 1);
+        public static SemaphoreSlim semaphoreSlim = new SemaphoreSlim(0, 1);
         public virtual Task ExecuteAsyncSuccess(string input)
         {
             try
@@ -82,8 +82,6 @@ public class JobQueueWorkerTests
     public async Task ExecuteAsync_ValidJob_InvokesJobAndMarksComplete()
     {
         // Arrange
-        var dummy = new DummyService();
-
         var job = new TestJob
         {
             TrackingId = Guid.NewGuid(),
@@ -98,9 +96,7 @@ public class JobQueueWorkerTests
         storage.GetNextBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(new List<TestJob> { job });
 
-        var serviceCollection = new ServiceCollection();
-        serviceCollection.AddSingleton<DummyService>(dummy);
-        var services = serviceCollection.BuildServiceProvider();
+        var services = new ServiceCollection().BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
@@ -110,8 +106,8 @@ public class JobQueueWorkerTests
         using var cts = new CancellationTokenSource(50);
 
         // Act
-        await worker.StartAsync(cts.Token);
-        await dummy.semaphoreSlim.WaitAsync();
+        var running = worker.StartAsync(cts.Token);
+        await DummyService.semaphoreSlim.WaitAsync();
         await worker.StopAsync(CancellationToken.None);
 
         // Assert
@@ -135,11 +131,8 @@ public class JobQueueWorkerTests
         var storage = Substitute.For<IJobStorageProvider<TestJob>>();
         storage.GetNextBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(new List<TestJob> { job });
-
-        var failingService = new DummyService();
-        var serviceCollection = new ServiceCollection();
-        serviceCollection.AddSingleton<DummyService>(failingService);
-        var services = serviceCollection.BuildServiceProvider();
+        
+        var services = new ServiceCollection().BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
@@ -147,8 +140,8 @@ public class JobQueueWorkerTests
         var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
         
         // Act
-        var running = worker.StartAsync(CancellationToken.None);
-        await failingService.semaphoreSlim.WaitAsync();
+        await worker.StartAsync(CancellationToken.None);
+        await DummyService.semaphoreSlim.WaitAsync();
         await worker.StopAsync(CancellationToken.None);
         // Assert
         await storage.Received().OnHandlerExecutionFailureAsync(job, Arg.Any<Exception>(), Arg.Any<CancellationToken>());
@@ -182,7 +175,6 @@ public class JobQueueWorkerTests
     public async Task ExecuteAsync_EnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete()
     {
         // Arrange
-        var dummy = new DummyService();
         var storage = Substitute.For<IJobStorageProvider<TestJob>>();
         var jobQueue = new JobQueue<TestJob>(storage);
 
@@ -191,9 +183,7 @@ public class JobQueueWorkerTests
             .When(x => x.StoreJobAsync(Arg.Any<TestJob>(), Arg.Any<CancellationToken>()))
             .Do(ci => capturedJob = ci.Arg<TestJob>());
 
-        var serviceCollection = new ServiceCollection();
-        serviceCollection.AddSingleton<DummyService>(dummy);
-        var services = serviceCollection.BuildServiceProvider();
+        var services = new ServiceCollection().BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
@@ -208,8 +198,8 @@ public class JobQueueWorkerTests
         using var cts = new CancellationTokenSource(150);
 
         // Act
-        var running = worker.StartAsync(cts.Token);
-        await dummy.semaphoreSlim.WaitAsync();
+        await worker.StartAsync(cts.Token);
+        await DummyService.semaphoreSlim.WaitAsync();
         await worker.StopAsync(CancellationToken.None);
 
         // Assert

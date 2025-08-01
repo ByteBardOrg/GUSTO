@@ -12,5 +12,7 @@
     &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_NoJobs_DelaysAndContinuesLoop&lt;/TestId&gt;
     &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_ValidJob_InvokesJobAndMarksComplete&lt;/TestId&gt;
     &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_JobThrowsException_LogsAndHandlesFailure&lt;/TestId&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_StorageThrowsException_LogsAndDelays&lt;/TestId&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_EnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete&lt;/TestId&gt;
   &lt;/TestAncestor&gt;
 &lt;/SessionState&gt;</s:String></wpf:ResourceDictionary>
