@@ -6,6 +6,17 @@
     &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueTests&lt;/TestId&gt;
   &lt;/TestAncestor&gt;
 &lt;/SessionState&gt;</s:String>
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=30d5c002_002D842e_002D4818_002Dba35_002D86d5eb4aebc5/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" Name="ExecuteAsync_EnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
+  &lt;TestAncestor&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_EnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete&lt;/TestId&gt;
+  &lt;/TestAncestor&gt;
+&lt;/SessionState&gt;</s:String>
+	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=8b0e09e0_002Df44c_002D4a9c_002Da005_002D72cbeaa22eff/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="ExecuteAsync_EnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete #2" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
+  &lt;TestAncestor&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueWorkerTests.ExecuteAsync_EnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete&lt;/TestId&gt;
+    &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueTests&lt;/TestId&gt;
+  &lt;/TestAncestor&gt;
+&lt;/SessionState&gt;</s:String>
 	<s:String x:Key="/Default/Environment/UnitTesting/UnitTestSessionStore/Sessions/=c19dc007_002D1d95_002D42fc_002Dbc88_002D3a0471ac0c66/@EntryIndexedValue">&lt;SessionState ContinuousTestingMode="0" IsActive="True" Name="JobQueueTests #2" xmlns="urn:schemas-jetbrains-com:jetbrains-ut-session"&gt;
   &lt;TestAncestor&gt;
     &lt;TestId&gt;xUnit::123D6FCD-191B-42E7-9790-768CB7D09548::net9.0::JobQueueTests&lt;/TestId&gt;

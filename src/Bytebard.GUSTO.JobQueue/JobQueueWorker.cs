@@ -20,13 +20,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
     private readonly IJobStorageProvider<TStorageRecord> _storage;
     private readonly ILogger<JobQueueWorker<TStorageRecord>> _logger;
     private readonly JobQueueConfig _config;
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-        WriteIndented = false
-    };
-
+    
     public JobQueueWorker(
         IServiceProvider serviceProvider,
         IJobStorageProvider<TStorageRecord> storage,

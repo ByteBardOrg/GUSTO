@@ -19,9 +19,15 @@ public class JobQueueWorkerTests
         public bool IsComplete { get; set; }
     }
 
-    public class DummyService
+    public class TestabletJob
     {
-        public static SemaphoreSlim semaphoreSlim = new SemaphoreSlim(0, 1);
+        public static SemaphoreSlim semaphoreSlim { get; private set; }
+
+        public static void CreateSemaphore()
+        {
+            semaphoreSlim = new SemaphoreSlim(0, 1);
+        }
+            
         public virtual Task ExecuteAsyncSuccess(string input)
         {
             try
@@ -85,8 +91,8 @@ public class JobQueueWorkerTests
         var job = new TestJob
         {
             TrackingId = Guid.NewGuid(),
-            JobType = typeof(DummyService).AssemblyQualifiedName,
-            MethodName = nameof(DummyService.ExecuteAsyncSuccess),
+            JobType = typeof(TestabletJob).AssemblyQualifiedName,
+            MethodName = nameof(TestabletJob.ExecuteAsyncSuccess),
             ArgumentsJson = JsonConvert.SerializeObject(new object[] { "test" }),
             ExecuteAfter = DateTime.UtcNow,
             IsComplete = false
@@ -106,8 +112,9 @@ public class JobQueueWorkerTests
         using var cts = new CancellationTokenSource(50);
 
         // Act
-        var running = worker.StartAsync(cts.Token);
-        await DummyService.semaphoreSlim.WaitAsync();
+        TestabletJob.CreateSemaphore();
+        await worker.StartAsync(cts.Token);
+        await TestabletJob.semaphoreSlim.WaitAsync();
         await worker.StopAsync(CancellationToken.None);
 
         // Assert
@@ -121,8 +128,8 @@ public class JobQueueWorkerTests
         var job = new TestJob
         {
             TrackingId = Guid.NewGuid(),
-            JobType = typeof(DummyService).AssemblyQualifiedName,
-            MethodName = nameof(DummyService.ExecuteAsyncFail),
+            JobType = typeof(TestabletJob).AssemblyQualifiedName,
+            MethodName = nameof(TestabletJob.ExecuteAsyncFail),
             ArgumentsJson = JsonConvert.SerializeObject(new object[] { "fail" }),
             ExecuteAfter = DateTime.UtcNow,
             IsComplete = false
@@ -140,8 +147,9 @@ public class JobQueueWorkerTests
         var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
         
         // Act
+        TestabletJob.CreateSemaphore();
         await worker.StartAsync(CancellationToken.None);
-        await DummyService.semaphoreSlim.WaitAsync();
+        await TestabletJob.semaphoreSlim.WaitAsync();
         await worker.StopAsync(CancellationToken.None);
         // Assert
         await storage.Received().OnHandlerExecutionFailureAsync(job, Arg.Any<Exception>(), Arg.Any<CancellationToken>());
@@ -188,7 +196,7 @@ public class JobQueueWorkerTests
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        await jobQueue.EnqueueAsync<DummyService>(svc => svc.ExecuteAsyncSuccess("from real queue"));
+        await jobQueue.EnqueueAsync<TestabletJob>(svc => svc.ExecuteAsyncSuccess("from real queue"));
 
         storage.GetNextBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(_ => capturedJob != null ? new[] { capturedJob } : Array.Empty<TestJob>());
@@ -198,8 +206,9 @@ public class JobQueueWorkerTests
         using var cts = new CancellationTokenSource(150);
 
         // Act
+        TestabletJob.CreateSemaphore();
         await worker.StartAsync(cts.Token);
-        await DummyService.semaphoreSlim.WaitAsync();
+        await TestabletJob.semaphoreSlim.WaitAsync();
         await worker.StopAsync(CancellationToken.None);
 
         // Assert
