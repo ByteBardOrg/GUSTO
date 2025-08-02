@@ -1,4 +1,4 @@
-namespace Bytebard.GUSTO;
+namespace ByteBard.GUSTO;
 
 public class GustoConfig
 {

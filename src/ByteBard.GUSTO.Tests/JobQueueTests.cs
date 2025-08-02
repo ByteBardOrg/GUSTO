@@ -1,7 +1,7 @@
 ﻿using System.Linq.Expressions;
 using Newtonsoft.Json;
 using NSubstitute;
-using Bytebard.GUSTO;
+using ByteBard.GUSTO;
 
 public class JobQueueTests
 {

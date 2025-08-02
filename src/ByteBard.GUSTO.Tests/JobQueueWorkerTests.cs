@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using Newtonsoft.Json;
-using Bytebard.GUSTO;
+using ByteBard.GUSTO;
 
 public class JobQueueWorkerTests
 {

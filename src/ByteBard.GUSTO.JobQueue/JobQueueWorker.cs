@@ -1,4 +1,4 @@
-namespace Bytebard.GUSTO;
+namespace ByteBard.GUSTO;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

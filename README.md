@@ -16,7 +16,7 @@ A lightweight background job processing library for .NET. GUSTO provides a simpl
 ### 1. Install the Package
 
 ```bash
-dotnet add package Bytebard.GUSTO
+dotnet add package ByteBard.GUSTO
 ```
 
 ### 2. Implement the Storage Record

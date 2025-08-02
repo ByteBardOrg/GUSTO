@@ -1,4 +1,4 @@
-namespace Bytebard.GUSTO;
+namespace ByteBard.GUSTO;
 
 public interface IJobStorageRecord
 {

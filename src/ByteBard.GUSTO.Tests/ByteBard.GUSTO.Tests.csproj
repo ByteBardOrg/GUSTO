@@ -25,7 +25,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Bytebard.GUSTO.JobQueue\Bytebard.GUSTO.csproj" />
+      <ProjectReference Include="..\ByteBard.GUSTO.JobQueue\ByteBard.GUSTO.csproj" />
     </ItemGroup>
 
 </Project>

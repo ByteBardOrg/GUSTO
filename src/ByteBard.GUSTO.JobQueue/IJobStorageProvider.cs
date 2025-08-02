@@ -1,4 +1,4 @@
-namespace Bytebard.GUSTO;
+namespace ByteBard.GUSTO;
 
 /// <summary>
 /// Defines methods for persisting and managing job records in a storage provider, typically a NoSQL database.

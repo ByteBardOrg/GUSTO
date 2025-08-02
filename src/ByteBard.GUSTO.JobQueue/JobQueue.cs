@@ -1,4 +1,4 @@
-namespace Bytebard.GUSTO;
+namespace ByteBard.GUSTO;
 
 using System.Linq.Expressions;
 using Newtonsoft.Json;
