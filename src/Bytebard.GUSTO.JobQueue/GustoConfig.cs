@@ -1,8 +1,8 @@
 namespace Bytebard.GUSTO;
 
-public class JobQueueConfig
+public class GustoConfig
 {
-    public const string ConfigurationSection = "JobQueue";
+    public const string ConfigurationSection = "Gusto";
 
     public int BatchSize { get; set; } = 10;
 

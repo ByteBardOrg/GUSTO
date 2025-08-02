@@ -1,61 +1,57 @@
 namespace Bytebard.GUSTO;
 
+/// <summary>
+/// Defines methods for persisting and managing job records in a storage provider, typically a NoSQL database.
+/// </summary>
+/// <typeparam name="TStorageRecord">The type of the storage record that implements <see cref="IJobStorageRecord"/>.</typeparam>
 public interface IJobStorageProvider<TStorageRecord> where TStorageRecord : IJobStorageRecord
 {
     /// <summary>
-    /// store the job storage record however you please. ideally on a nosql database.
+    /// Persists the provided job storage record to the underlying data store.
     /// </summary>
-    /// <param name="r">the job storage record which contains the actual command object as well as some metadata</param>
-    /// <param name="ct"></param>
-    Task StoreJobAsync(TStorageRecord r, CancellationToken ct);
+    /// <param name="jobStorageRecord">
+    /// The job storage record containing the command object and related metadata to be saved.
+    /// </param>
+    /// <param name="cancellationToken">A cancellation token for the asynchronous operation.</param>
+    Task StoreJobAsync(TStorageRecord jobStorageRecord, CancellationToken cancellationToken);
 
     /// <summary>
-    /// fetch the next pending batch of job storage records that need to be processed, with the supplied search parameters.
+    /// Retrieves a batch of job storage records that match the given search criteria.
     /// </summary>
-    /// <param name="parameters">use these supplied search parameters to find the next batch of job records from your database</param>
-    Task<IEnumerable<TStorageRecord>> GetNextBatchAsync(JobSearchParams<TStorageRecord> parameters, CancellationToken ct);
+    /// <param name="parameters">
+    /// Search parameters to use when querying for the next batch of jobs.
+    /// </param>
+    /// <param name="cancellationToken">A cancellation token for the asynchronous operation.</param>
+    Task<IEnumerable<TStorageRecord>> GetBatchAsync(JobSearchParams<TStorageRecord> parameters, CancellationToken cancellationToken);
 
     /// <summary>
-    /// mark the job storage record as complete by either replacing the entity on storage with the supplied instance or
-    /// simply update the <see cref="IJobStorageRecord.IsComplete" /> field to true with a partial update operation.
+    /// Mark the specified job as complete. This can involve either updating the record's
+    /// <see cref="IJobStorageRecord.IsComplete"/> property to true or replacing the record in the store.
     /// </summary>
-    /// <param name="r">the job storage record to mark as complete</param>
-    /// <param name="ct">cancellation token</param>
-    Task MarkJobAsCompleteAsync(TStorageRecord r, CancellationToken ct);
+    /// <param name="jobStorageRecord">The job storage record to mark as complete.</param>
+    /// <param name="cancellationToken">A cancellation token for the asynchronous operation.</param>
+    Task MarkJobAsCompleteAsync(TStorageRecord jobStorageRecord, CancellationToken cancellationToken);
 
     /// <summary>
-    /// either delete the job storage record from the db using the supplied tracking id or update the <see cref="IJobStorageRecord.IsComplete" /> field to true
-    /// with a partial update operation.
+    /// Cancels a job by either deleting the associated record from storage or marking it as complete using its tracking ID.
     /// </summary>
-    /// <param name="trackingId">the <see cref="IJobStorageRecord.TrackingId" /> of the job to be cancelled</param>
-    /// <param name="ct">cancellation token</param>
-    Task CancelJobAsync(Guid trackingId, CancellationToken ct);
+    /// <param name="trackingId">
+    /// The unique tracking ID of the job to cancel. Typically found in <see cref="IJobStorageRecord.TrackingId"/>.
+    /// </param>
+    /// <param name="cancellationToken">A cancellation token for the asynchronous operation.</param>
+    Task CancelJobAsync(Guid trackingId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// this will only be triggered when a command handler (<see cref="ICommandHandler{TCommand}" />) associated with a command
-    /// throws an exception. If you've set an execution time limit for the command, the thrown exception would be of type
-    /// <see cref="OperationCanceledException" />.
-    /// <para>
-    /// when a job/command execution fails, it will be retried immediately. the failed job will be fetched again with the next batch of pending jobs.
-    /// if one or more jobs keep failing repeatedly, it may cause the whole queue to get stuck in a retry loop preventing it from progressing.
-    /// </para>
-    /// <para>
-    /// to prevent this from happening and allow other jobs to be given a chance at execution, you can reschedule failed jobs
-    /// to be re-attempted at a future time instead. simply update the <see cref="IJobStorageRecord.ExecuteAfter" /> property to a future date/time
-    /// and save the entity to the database (or do a partial update of only that property value).
-    /// </para>
+    /// Called when the job's associated command handler throws an exception during execution.
+    /// This method allows failed jobs to be rescheduled or handled differently to prevent retry loops.
     /// </summary>
-    /// <param name="r">the job that failed to execute successfully</param>
-    /// <param name="exception">the exception that was thrown</param>
-    /// <param name="ct">cancellation token</param>
-    Task OnHandlerExecutionFailureAsync(TStorageRecord r, Exception exception, CancellationToken ct);
-
-    /// <summary>
-    /// this method will be called hourly. implement this method to delete stale records (completed or expired) from storage.
-    /// you can safely delete the completed records. the incomplete &amp; expired records can be moved to some other location (dead-letter-queue maybe) or
-    /// for inspection by a human.
-    /// or if you'd like to retry expired events, update the <see cref="IJobStorageRecord.ExpireOn" /> field to a future date/time.
-    /// </summary>
-    /// <param name="parameters">use these supplied search parameters to find stale job records from your database</param>
-    Task PurgeStaleJobsAsync(StaleJobSearchParams<TStorageRecord> parameters);
+    /// <param name="jobStorageRecord">The job storage record that failed to execute.</param>
+    /// <param name="exception">The exception thrown by the command handler.</param>
+    /// <param name="cancellationToken">A cancellation token for the asynchronous operation.</param>
+    /// <remarks>
+    /// When a job fails, it is retried immediately. However, repeated failures may block queue progress.
+    /// To mitigate this, you can reschedule the failed job by updating its
+    /// <see cref="IJobStorageRecord.ExecuteAfter"/> property to a future time.
+    /// </remarks>
+    Task OnHandlerExecutionFailureAsync(TStorageRecord jobStorageRecord, Exception exception, CancellationToken cancellationToken);
 }

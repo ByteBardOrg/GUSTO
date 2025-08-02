@@ -19,12 +19,12 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
     private readonly IServiceProvider _serviceProvider;
     private readonly IJobStorageProvider<TStorageRecord> _storage;
     private readonly ILogger<JobQueueWorker<TStorageRecord>> _logger;
-    private readonly JobQueueConfig _config;
+    private readonly GustoConfig _config;
     
     public JobQueueWorker(
         IServiceProvider serviceProvider,
         IJobStorageProvider<TStorageRecord> storage,
-        IOptions<JobQueueConfig> config,
+        IOptions<GustoConfig> config,
         ILogger<JobQueueWorker<TStorageRecord>> logger)
     {
         _serviceProvider = serviceProvider;
@@ -47,7 +47,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         {
             try
             {
-                var jobs = await _storage.GetNextBatchAsync(
+                var jobs = await _storage.GetBatchAsync(
                     new JobSearchParams<TStorageRecord>
                 {
                     Match = job =>
