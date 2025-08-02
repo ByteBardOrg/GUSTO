@@ -17,7 +17,7 @@ public class JobQueueTests
         public bool IsComplete { get; set; }
     }
 
-    private class DummyJob
+    private class TestJob
     {
         public virtual Task DoSomethingAsync(string input)
         {
@@ -34,14 +34,14 @@ public class JobQueueTests
         var cancellationToken = CancellationToken.None;
 
         // Act
-        var trackingId = await jobQueue.EnqueueAsync<DummyJob>(job => job.DoSomethingAsync("hello"), null, cancellationToken);
+        var trackingId = await jobQueue.EnqueueAsync<TestJob>(job => job.DoSomethingAsync("hello"), null, cancellationToken);
 
         // Assert
         await storageProvider.Received(1).StoreJobAsync(
             Arg.Is<TestJobStorageRecord>(record =>
                 record.TrackingId == trackingId &&
                 record.MethodName == "DoSomethingAsync" &&
-                record.JobType == typeof(DummyJob).AssemblyQualifiedName &&
+                record.JobType == typeof(TestJob).AssemblyQualifiedName &&
                 JsonConvert.DeserializeObject<string[]>(record.ArgumentsJson)[0] == "hello" &&
                 !record.IsComplete),
             cancellationToken);
@@ -57,7 +57,7 @@ public class JobQueueTests
         var cancellationToken = CancellationToken.None;
 
         // Act
-        await jobQueue.EnqueueAsync<DummyJob>(job => job.DoSomethingAsync("hello"), executeAfter, cancellationToken);
+        await jobQueue.EnqueueAsync<TestJob>(job => job.DoSomethingAsync("hello"), executeAfter, cancellationToken);
 
         // Assert
         await storageProvider.Received(1).StoreJobAsync(
@@ -76,7 +76,7 @@ public class JobQueueTests
         var cancellationToken = CancellationToken.None;
 
         // Act
-        await jobQueue.EnqueueAsync<DummyJob>(job => job.DoSomethingAsync("hello"), null, cancellationToken);
+        await jobQueue.EnqueueAsync<TestJob>(job => job.DoSomethingAsync("hello"), null, cancellationToken);
         var afterCall = DateTime.UtcNow;
 
         // Assert
