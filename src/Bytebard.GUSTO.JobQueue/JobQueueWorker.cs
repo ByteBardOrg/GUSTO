@@ -1,6 +1,5 @@
 namespace Bytebard.GUSTO;
 
-using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
