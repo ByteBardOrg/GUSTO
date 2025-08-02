@@ -283,4 +283,4 @@ public async Task OnHandlerExecutionFailureAsync(MongoJobRecord jobStorageRecord
 
 ## That's It!
 
-JobRunner automatically creates job instances using `ActivatorUtilities.CreateInstance()`, so constructor dependencies are resolved from your DI container without needing to register the job classes themselves.
+Gusto automatically creates job instances using `ActivatorUtilities.CreateInstance()`, so constructor dependencies are resolved from your DI container without needing to register the job classes themselves.
