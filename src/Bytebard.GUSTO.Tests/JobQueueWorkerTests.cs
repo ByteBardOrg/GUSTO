@@ -53,7 +53,7 @@ public class JobQueueWorkerTests
         }
     }
 
-    private JobQueueConfig GetTestConfig() => new JobQueueConfig
+    private GustoConfig GetTestConfig() => new GustoConfig
     {
         Concurrency = 1,
         PollInterval = TimeSpan.FromMilliseconds(10),
@@ -68,11 +68,11 @@ public class JobQueueWorkerTests
         storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(new List<TestJob>());
 
-        var logger = Substitute.For<ILogger<GustoWorker<TestJob>>>();
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
         var services = Substitute.For<IServiceProvider>();
 
-        var worker = new GustoWorker<TestJob>(services, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
 
         using var cts = new CancellationTokenSource(50);
 
@@ -104,10 +104,10 @@ public class JobQueueWorkerTests
 
         var services = new ServiceCollection().BuildServiceProvider();
 
-        var logger = Substitute.For<ILogger<GustoWorker<TestJob>>>();
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        var worker = new GustoWorker<TestJob>(services, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
 
         using var cts = new CancellationTokenSource(50);
 
@@ -141,10 +141,10 @@ public class JobQueueWorkerTests
         
         var services = new ServiceCollection().BuildServiceProvider();
 
-        var logger = Substitute.For<ILogger<GustoWorker<TestJob>>>();
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        var worker = new GustoWorker<TestJob>(services, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
         
         // Act
         TestabletJob.CreateSemaphore();
@@ -164,10 +164,10 @@ public class JobQueueWorkerTests
             .Returns<Task<IEnumerable<TestJob>>>(_ => throw new Exception("storage error"));
 
         var services = Substitute.For<IServiceProvider>();
-        var logger = Substitute.For<ILogger<GustoWorker<TestJob>>>();
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        var worker = new GustoWorker<TestJob>(services, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
 
         using var cts = new CancellationTokenSource(100);
 
@@ -193,7 +193,7 @@ public class JobQueueWorkerTests
 
         var services = new ServiceCollection().BuildServiceProvider();
 
-        var logger = Substitute.For<ILogger<GustoWorker<TestJob>>>();
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
         await jobQueue.EnqueueAsync<TestabletJob>(svc => svc.ExecuteAsyncSuccess("from real queue"));
@@ -201,7 +201,7 @@ public class JobQueueWorkerTests
         storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(_ => capturedJob != null ? new[] { capturedJob } : Array.Empty<TestJob>());
 
-        var worker = new GustoWorker<TestJob>(services, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
 
         using var cts = new CancellationTokenSource(150);
 
