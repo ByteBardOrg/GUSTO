@@ -4,6 +4,14 @@
         <Nullable>enable</Nullable>
         <LangVersion>13</LangVersion>
         <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+        <Title>Bytebard.GUSTO</Title>
+        <Description>A lightweight background job processing library for .NET. GUSTO provides a simple way to queue and execute background tasks with just a background service and two interfaces to implement.</Description>
+        <Copyright>Bytebard</Copyright>
+        <PackageProjectUrl>https://github.com/ByteBardOrg/GUSTO</PackageProjectUrl>
+        <PackageLicenseUrl>https://github.com/ByteBardOrg/GUSTO/blob/main/LICENSE</PackageLicenseUrl>
+        <RepositoryUrl>https://github.com/ByteBardOrg/GUSTO</RepositoryUrl>
+        <PackageTags>Fire-And-Forget Long-Running Jobs Scheduler Queues Background</PackageTags>
+        <Authors>Bytebard</Authors>
     </PropertyGroup>
 
     <ItemGroup>
