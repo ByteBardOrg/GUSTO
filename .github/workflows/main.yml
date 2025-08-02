@@ -1,0 +1,46 @@
+name: Publish NuGet package
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  prereleaseCheck:
+    runs-on: ubuntu-latest
+    environment: GUSTO 
+    name: Check release
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v1
+
+    - name: Semantic Release
+      uses: cycjimmy/semantic-release-action@v3
+      id: semantic
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      trigger_release: ${{ steps.semantic.outputs.new_release_published }}
+      version: ${{ steps.semantic.outputs.new_release_published == 'true' && steps.semantic.outputs.new_release_version }}
+
+  release:
+    runs-on: ubuntu-latest
+    name: Publish NuGet packages
+    needs: prereleaseCheck
+    environment: GUSTO 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v1
+        
+      - name: Setup .NET Core @ Latest
+        if: needs.prereleaseCheck.outputs.trigger_release == 'true'
+        uses: actions/setup-dotnet@v1
+
+      - name: Build ${{ matrix.package-name }} project and pack NuGet package
+        if: needs.prereleaseCheck.outputs.trigger_release == 'true'
+        run: dotnet pack src/ByteBard.GUSTO.JobQueue/ByteBard.GUSTO.csproj -c Release -o out-ByteBard.GUSTO -p:PackageVersion=${{ needs.prereleaseCheck.outputs.version }}
+
+      - name: Push generated package to GitHub Packages registry
+        if: needs.prereleaseCheck.outputs.trigger_release == 'true'
+        run: dotnet nuget push out-ByteBard.GUSTO/*.nupkg -s https://api.nuget.org/v3/index.json --skip-duplicate -n --api-key ${{secrets.NUGET}}
