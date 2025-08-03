@@ -1,5 +1,5 @@
 # GUSTO
-Generic Utility for Scheduling &amp; Task Orchestration.
+Generic Utility for Scheduling & Task Orchestration.
 
 A lightweight background job processing library for .NET. GUSTO provides a simple way to queue and execute background tasks with just a background service and two interfaces to implement.
 
@@ -97,9 +97,6 @@ public class InMemoryJobStorageProvider : IJobStorageProvider<JobRecord>
 ```csharp
 // Program.cs
 services.AddGusto<JobRecord, InMemoryJobStorageProvider>(configuration);
-
-// Register job dependencies (not the job classes themselves)
-services.AddScoped<IEmailProvider, SmtpEmailProvider>();
 ```
 
 ```json
@@ -280,7 +277,3 @@ public async Task OnHandlerExecutionFailureAsync(MongoJobRecord jobStorageRecord
     // Continue with retry logic...
 }
 ```
-
-## That's It!
-
-Gusto automatically creates job instances using `ActivatorUtilities.CreateInstance()`, so constructor dependencies are resolved from your DI container without needing to register the job classes themselves.
