@@ -74,7 +74,6 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
                         var method = jobType.GetMethod(storedJob.MethodName);
                         await (Task)method.Invoke(jobInstance, arguments);
 
-                        storedJob.IsComplete = true;
                         await _storage.MarkJobAsCompleteAsync(storedJob, ct);
                     }
                     catch (Exception ex)
