@@ -12,52 +12,47 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
         Formatting = Formatting.None
     };
 
-    private readonly IJobStorageProvider<TStorageRecord> _storageProvider;
+    public IJobStorageProvider<TStorageRecord> StorageProvider { get; }
 
     public JobQueue(IJobStorageProvider<TStorageRecord> storageProvider)
     {
-        _storageProvider = storageProvider;
+        StorageProvider = storageProvider;
     }
 
     public async Task<Guid> EnqueueAsync<T>(Expression<Func<T, Task>> methodCall, DateTime? executeAfter = null, CancellationToken cancellationToken = default)
     {
-        var methodCallExpression = (MethodCallExpression)methodCall.Body;
-        var method = methodCallExpression.Method;
-        var arguments = methodCallExpression.Arguments.Select(arg => Expression.Lambda(arg).Compile().DynamicInvoke()).ToArray();
-        var record = ConstructRecord(executeAfter, typeof(T).AssemblyQualifiedName, method, arguments);
-        
-
-        await _storageProvider.StoreJobAsync(record, cancellationToken);
+        var record = ConstructRecordFromExpression(methodCall, executeAfter);
+        await StorageProvider.StoreJobAsync(record, cancellationToken);
         return record.TrackingId;
     }
 
     public async Task<Guid> EnqueueAsync(Expression<Func<Task>> methodCall, DateTime? executeAfter = null, CancellationToken cancellationToken = default)
     {
-        var methodCallExpression = (MethodCallExpression)methodCall.Body;
-        var method = methodCallExpression.Method;
-        var arguments = methodCallExpression.Arguments.Select(arg => Expression.Lambda(arg).Compile().DynamicInvoke()).ToArray();
+        var record = ConstructRecordFromExpression(methodCall, executeAfter);
 
-        var targetType = method.DeclaringType;
-        var record = ConstructRecord(executeAfter, targetType?.AssemblyQualifiedName, method, arguments);
-
-        await _storageProvider.StoreJobAsync(record, cancellationToken);
+        await StorageProvider.StoreJobAsync(record, cancellationToken);
         return record.TrackingId;
     }
+    public TStorageRecord ConstructRecordFromExpression<T>(Expression<Func<T, Task>> methodCall, DateTime? executeAfter) => ConstructRecordFromExpression(methodCall.Body, executeAfter);
+    public TStorageRecord ConstructRecordFromExpression(Expression<Func<Task>> methodCall, DateTime? executeAfter) => ConstructRecordFromExpression(methodCall.Body, executeAfter);
     
-    
-    private static TStorageRecord ConstructRecord(DateTime? executeAfter, string? assemblyQualifiedName, MethodInfo method, object?[] arguments)
+    public TStorageRecord ConstructRecordFromExpression(Expression expression, DateTime? executeAfter)
     {
+        var methodCallExpression = (MethodCallExpression)expression;
+        var method = methodCallExpression.Method;
+        var arguments = methodCallExpression.Arguments.Select(arg => Expression.Lambda(arg).Compile().DynamicInvoke()).ToArray();
+        var targetType = method.DeclaringType;
         var record = new TStorageRecord
         {
             TrackingId = Guid.NewGuid(),
             CreatedOn = DateTime.UtcNow,
             ExecuteAfter = executeAfter ?? DateTime.UtcNow,
-            JobType = assemblyQualifiedName,
+            JobType = targetType?.AssemblyQualifiedName,
             MethodName = method.Name,
             ArgumentsJson = JsonConvert.SerializeObject(arguments, _settings),
             IsComplete = false
         };
+        
         return record;
     }
-
 }
