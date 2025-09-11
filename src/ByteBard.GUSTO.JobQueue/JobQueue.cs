@@ -41,7 +41,14 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
         var methodCallExpression = (MethodCallExpression)expression;
         var method = methodCallExpression.Method;
         var arguments = methodCallExpression.Arguments.Select(arg => Expression.Lambda(arg).Compile().DynamicInvoke()).ToArray();
-        var targetType = method.DeclaringType;
+    
+        Type targetType = methodCallExpression.Object switch
+        {
+            ConstantExpression c when c.Value != null => c.Value.GetType(),
+            MemberExpression m => Expression.Lambda(m).Compile().DynamicInvoke()?.GetType() ?? method.DeclaringType,
+            _ => method.DeclaringType
+        };
+
         var record = new TStorageRecord
         {
             TrackingId = Guid.NewGuid(),

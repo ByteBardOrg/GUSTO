@@ -17,12 +17,40 @@ public class JobQueueTests
         public bool IsComplete { get; set; }
     }
 
-    private class TestJob
+    private interface ITestJob
+    {
+        Task DoSomethingAsync(string input);
+    }
+    
+    private class TestJob : ITestJob
     {
         public virtual Task DoSomethingAsync(string input)
         {
             return Task.CompletedTask;
         }
+    }
+    
+    [Fact]
+    public async Task EnqueueAsync_ValidInterfaceJobType_StoresSerializedJobWithRealType()
+    {
+        // Arrange
+        var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
+        var jobQueue = new JobQueue<TestJobStorageRecord>(storageProvider);
+        var cancellationToken = CancellationToken.None;
+        ITestJob testJob = new TestJob();
+        
+        // Act
+        var trackingId = await jobQueue.EnqueueAsync(() => testJob.DoSomethingAsync("hello"), null, cancellationToken);
+
+        // Assert
+        await storageProvider.Received(1).StoreJobAsync(
+            Arg.Is<TestJobStorageRecord>(record =>
+                record.TrackingId == trackingId &&
+                record.MethodName == "DoSomethingAsync" &&
+                record.JobType == typeof(TestJob).AssemblyQualifiedName &&
+                JsonConvert.DeserializeObject<string[]>(record.ArgumentsJson)[0] == "hello" &&
+                !record.IsComplete),
+            cancellationToken);
     }
     
     [Fact]
