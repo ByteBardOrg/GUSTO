@@ -1,8 +1,10 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ByteBard.GUSTO", "ByteBard.GUSTO.JobQueue\ByteBard.GUSTO.csproj", "{26226AA9-3F43-4157-9F4C-76B182ED81B3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ByteBard.GUSTO.Tests", "ByteBard.GUSTO.Tests\ByteBard.GUSTO.Tests.csproj", "{123D6FCD-191B-42E7-9790-768CB7D09548}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ByteBard.GUSTO.Examples", "ByteBard.GUSTO.Examples\ByteBard.GUSTO.Examples.csproj", "{C46E4782-41AF-437A-914D-660FBCF534DC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
