@@ -61,7 +61,7 @@ public class JobQueueWorkerTests
     };
 
     [Fact]
-    public async Task ExecuteAsync_NoJobs_DelaysAndContinuesLoop()
+    public async Task ExecuteAsync_WhenNoJobsAvailable_DelaysAndContinuesLoop()
     {
         // Arrange
         var storage = Substitute.For<IJobStorageProvider<TestJob>>();
@@ -85,7 +85,7 @@ public class JobQueueWorkerTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_ValidJob_InvokesJobAndMarksComplete()
+    public async Task ExecuteAsync_WhenValidJobExists_InvokesJobAndMarksComplete()
     {
         // Arrange
         var job = new TestJob
@@ -120,7 +120,7 @@ public class JobQueueWorkerTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_JobThrowsException_LogsAndHandlesFailure()
+    public async Task ExecuteAsync_WhenJobThrowsException_LogsAndHandlesFailure()
     {
         // Arrange
         var job = new TestJob
@@ -154,7 +154,7 @@ public class JobQueueWorkerTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_StorageThrowsException_LogsAndDelays()
+    public async Task ExecuteAsync_WhenStorageThrowsException_LogsAndDelays()
     {
         // Arrange
         var storage = Substitute.For<IJobStorageProvider<TestJob>>();
@@ -178,7 +178,7 @@ public class JobQueueWorkerTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_EnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete()
+    public async Task ExecuteAsync_WhenEnqueuedViaJobQueue_JobIsExecutedAndMarkedComplete()
     {
         // Arrange
         var storage = Substitute.For<IJobStorageProvider<TestJob>>();
@@ -213,5 +213,192 @@ public class JobQueueWorkerTests
         Assert.NotNull(capturedJob);
         await storage.Received().MarkJobAsCompleteAsync(capturedJob, Arg.Any<CancellationToken>());
         Assert.Equal("from real queue", JsonConvert.DeserializeObject<string[]>(capturedJob.ArgumentsJson)[0]);
+    }
+
+    public interface IScopedTestService
+    {
+        string ProcessData(string input);
+        bool IsDisposed { get; }
+    }
+
+    public class ScopedTestService : IScopedTestService, IDisposable
+    {
+        public bool IsDisposed { get; private set; }
+
+        public string ProcessData(string input)
+        {
+            if (IsDisposed) throw new ObjectDisposedException(nameof(ScopedTestService));
+            return $"Processed: {input}";
+        }
+
+        public void Dispose()
+        {
+            IsDisposed = true;
+        }
+    }
+
+    public class JobWithScopedDependency
+    {
+        private readonly IScopedTestService _scopedService;
+        private readonly ITestResultCollector _resultCollector;
+
+        public JobWithScopedDependency(IScopedTestService scopedService, ITestResultCollector resultCollector)
+        {
+            _scopedService = scopedService;
+            _resultCollector = resultCollector;
+        }
+
+        public Task ExecuteWithScopedService(string input)
+        {
+            try
+            {
+                var result = _scopedService.ProcessData(input);
+                _resultCollector.AddResult(result);
+                return Task.CompletedTask;
+            }
+            finally
+            {
+                _resultCollector.SignalCompletion();
+            }
+        }
+    }
+
+    public interface ITestResultCollector
+    {
+        void AddResult(string result);
+        void SignalCompletion();
+        Task WaitForCompletionAsync(int expectedCount, TimeSpan timeout);
+        List<string> GetResults();
+    }
+
+    public class TestResultCollector : ITestResultCollector
+    {
+        private readonly List<string> _results = new();
+        private readonly SemaphoreSlim _semaphore = new(0, 10);
+
+        public void AddResult(string result)
+        {
+            lock (_results)
+            {
+                _results.Add(result);
+            }
+        }
+
+        public void SignalCompletion()
+        {
+            _semaphore.Release();
+        }
+
+        public async Task WaitForCompletionAsync(int expectedCount, TimeSpan timeout)
+        {
+            for (int i = 0; i < expectedCount; i++)
+            {
+                await _semaphore.WaitAsync(timeout);
+            }
+        }
+
+        public List<string> GetResults()
+        {
+            lock (_results)
+            {
+                return new List<string>(_results);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenJobRequiresScopedService_CreatesAndUsesServiceFromScope()
+    {
+        // Arrange
+        var resultCollector = new TestResultCollector();
+
+        var job = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(JobWithScopedDependency).AssemblyQualifiedName,
+            MethodName = nameof(JobWithScopedDependency.ExecuteWithScopedService),
+            ArgumentsJson = JsonConvert.SerializeObject(new object[] { "test-data" }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var storage = Substitute.For<IJobStorageProvider<TestJob>>();
+        storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<TestJob> { job }, new List<TestJob>());
+
+        var services = new ServiceCollection();
+        services.AddScoped<IScopedTestService, ScopedTestService>();
+        services.AddSingleton<ITestResultCollector>(resultCollector);
+        var serviceProvider = services.BuildServiceProvider();
+
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
+        var config = Options.Create(GetTestConfig());
+
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, storage, config, logger);
+
+        // Act
+        var running = worker.StartAsync(CancellationToken.None);
+        await resultCollector.WaitForCompletionAsync(1, TimeSpan.FromSeconds(5));
+        await worker.StopAsync(CancellationToken.None);
+
+        // Assert
+        await storage.Received().MarkJobAsCompleteAsync(job, Arg.Any<CancellationToken>());
+        var results = resultCollector.GetResults();
+        Assert.Single(results);
+        Assert.Equal("Processed: test-data", results[0]);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenMultipleJobsWithScopedServices_EachJobGetsOwnServiceInstance()
+    {
+        // Arrange
+        var resultCollector = new TestResultCollector();
+
+        var job1 = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(JobWithScopedDependency).AssemblyQualifiedName,
+            MethodName = nameof(JobWithScopedDependency.ExecuteWithScopedService),
+            ArgumentsJson = JsonConvert.SerializeObject(new object[] { "job1" }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var job2 = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(JobWithScopedDependency).AssemblyQualifiedName,
+            MethodName = nameof(JobWithScopedDependency.ExecuteWithScopedService),
+            ArgumentsJson = JsonConvert.SerializeObject(new object[] { "job2" }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var storage = Substitute.For<IJobStorageProvider<TestJob>>();
+        storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<TestJob> { job1, job2 }, new List<TestJob>());
+
+        var services = new ServiceCollection();
+        services.AddScoped<IScopedTestService, ScopedTestService>();
+        services.AddSingleton<ITestResultCollector>(resultCollector);
+        var serviceProvider = services.BuildServiceProvider();
+
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
+        var config = Options.Create(new GustoConfig { Concurrency = 2, PollInterval = TimeSpan.FromMilliseconds(10), BatchSize = 2 });
+
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, storage, config, logger);
+
+        // Act
+        var running = worker.StartAsync(CancellationToken.None);
+        await resultCollector.WaitForCompletionAsync(2, TimeSpan.FromSeconds(5));
+        await worker.StopAsync(CancellationToken.None);
+
+        // Assert
+        await storage.Received().MarkJobAsCompleteAsync(job1, Arg.Any<CancellationToken>());
+        await storage.Received().MarkJobAsCompleteAsync(job2, Arg.Any<CancellationToken>());
+        var results = resultCollector.GetResults();
+        Assert.Equal(2, results.Count);
+        Assert.Contains("Processed: job1", results);
+        Assert.Contains("Processed: job2", results);
     }
 }

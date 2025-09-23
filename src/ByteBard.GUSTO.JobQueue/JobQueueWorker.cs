@@ -66,11 +66,12 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
                 await Parallel.ForEachAsync(jobStorageRecords, parallelOptions, async (storedJob, ct) =>
                 {
+                    using var scope = _serviceProvider.CreateScope();
                     try
                     {
                         var jobType = Type.GetType(storedJob.JobType);
                         var arguments = JsonConvert.DeserializeObject<object[]>(storedJob.ArgumentsJson, _settings);
-                        var jobInstance = ActivatorUtilities.CreateInstance(_serviceProvider, jobType);
+                        var jobInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, jobType);
                         var method = jobType.GetMethod(storedJob.MethodName);
                         await (Task)method.Invoke(jobInstance, arguments);
 

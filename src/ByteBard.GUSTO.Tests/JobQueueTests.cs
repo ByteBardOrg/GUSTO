@@ -31,7 +31,7 @@ public class JobQueueTests
     }
     
     [Fact]
-    public async Task EnqueueAsync_ValidInterfaceJobType_StoresSerializedJobWithRealType()
+    public async Task EnqueueAsync_WhenValidInterfaceJobTypeProvided_StoresSerializedJobWithRealType()
     {
         // Arrange
         var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
@@ -54,7 +54,7 @@ public class JobQueueTests
     }
     
     [Fact]
-    public async Task EnqueueAsync_ValidMethodCall_StoresSerializedJob()
+    public async Task EnqueueAsync_WhenValidMethodCallProvided_StoresSerializedJob()
     {
         // Arrange
         var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
@@ -78,7 +78,7 @@ public class JobQueueTests
 
 
     [Fact]
-    public async Task EnqueueAsyncGeneric_ValidMethodCall_StoresSerializedJob()
+    public async Task EnqueueAsyncGeneric_WhenValidMethodCallProvided_StoresSerializedJob()
     {
         // Arrange
         var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
@@ -100,7 +100,7 @@ public class JobQueueTests
     }
 
     [Fact]
-    public async Task EnqueueAsync_WithExecuteAfter_UsesProvidedTime()
+    public async Task EnqueueAsync_WhenExecuteAfterTimeProvided_UsesProvidedTime()
     {
         // Arrange
         var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
@@ -119,7 +119,7 @@ public class JobQueueTests
     }
 
     [Fact]
-    public async Task EnqueueAsync_WithoutExecuteAfter_SetsToUtcNow()
+    public async Task EnqueueAsync_WhenExecuteAfterNotProvided_SetsToUtcNow()
     {
         // Arrange
         var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
@@ -136,5 +136,100 @@ public class JobQueueTests
             Arg.Is<TestJobStorageRecord>(record =>
                 record.ExecuteAfter >= beforeCall && record.ExecuteAfter <= afterCall),
             cancellationToken);
+    }
+
+    public class JobWithMultipleParameters
+    {
+        public Task ProcessAsync(string message, int count, bool isEnabled)
+        {
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenMultipleParametersProvided_SerializesAllArguments()
+    {
+        // Arrange
+        var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
+        var jobQueue = new JobQueue<TestJobStorageRecord>(storageProvider);
+        var cancellationToken = CancellationToken.None;
+
+        // Act
+        var trackingId = await jobQueue.EnqueueAsync<JobWithMultipleParameters>(
+            job => job.ProcessAsync("hello", 42, true),
+            null,
+            cancellationToken);
+
+        // Assert
+        await storageProvider.Received(1).StoreJobAsync(
+            Arg.Is<TestJobStorageRecord>(record =>
+                record.TrackingId == trackingId &&
+                record.MethodName == "ProcessAsync" &&
+                record.JobType == typeof(JobWithMultipleParameters).AssemblyQualifiedName &&
+                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson).Length == 3 &&
+                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson)[0].ToString() == "hello" &&
+                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson)[1].ToString() == "42" &&
+                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson)[2].ToString() == "True"),
+            cancellationToken);
+    }
+
+    [Fact]
+    public async Task ConstructRecordFromExpression_WhenCalled_ReturnsValidRecord()
+    {
+        // Arrange
+        var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
+        var jobQueue = new JobQueue<TestJobStorageRecord>(storageProvider);
+        var executeAfter = DateTime.UtcNow.AddMinutes(5);
+
+        // Act
+        var record = jobQueue.ConstructRecordFromExpression<TestJob>(
+            job => job.DoSomethingAsync("test"),
+            executeAfter);
+
+        // Assert
+        Assert.NotEqual(Guid.Empty, record.TrackingId);
+        Assert.Equal("DoSomethingAsync", record.MethodName);
+        Assert.Equal(typeof(TestJob).AssemblyQualifiedName, record.JobType);
+        Assert.False(record.IsComplete);
+        Assert.Equal(executeAfter, record.ExecuteAfter);
+        Assert.True(record.CreatedOn <= DateTime.UtcNow);
+
+        var args = JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson);
+        Assert.Single(args);
+        Assert.Equal("test", args[0]);
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenStorageProviderThrowsException_PropagatesException()
+    {
+        // Arrange
+        var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
+        storageProvider.StoreJobAsync(Arg.Any<TestJobStorageRecord>(), Arg.Any<CancellationToken>())
+            .Returns<Task>(_ => throw new InvalidOperationException("Storage error"));
+
+        var jobQueue = new JobQueue<TestJobStorageRecord>(storageProvider);
+        var cancellationToken = CancellationToken.None;
+
+        // Act & Assert
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await jobQueue.EnqueueAsync<TestJob>(job => job.DoSomethingAsync("test"), null, cancellationToken));
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenCancellationRequested_PropagatesCancellationToStorage()
+    {
+        // Arrange
+        var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
+        storageProvider.StoreJobAsync(Arg.Any<TestJobStorageRecord>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromCanceled(new CancellationToken(true)));
+
+        var jobQueue = new JobQueue<TestJobStorageRecord>(storageProvider);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        // Act & Assert
+        await Assert.ThrowsAsync<TaskCanceledException>(async () =>
+            await jobQueue.EnqueueAsync<TestJob>(job => job.DoSomethingAsync("test"), null, cts.Token));
     }
 }
