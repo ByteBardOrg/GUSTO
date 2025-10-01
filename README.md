@@ -7,9 +7,12 @@ A lightweight background job processing library for .NET. GUSTO provides a simpl
 
 - **Minimal Setup**: Implement two interfaces and you're ready
 - **Storage Agnostic**: Use any database (SQL Server, MongoDB, Redis, etc.)
+- **Flexible Service Lifetimes**: Configure services as Scoped, Transient, or Singleton
 - **Concurrent Processing**: Configurable parallel job execution
 - **Job Scheduling**: Schedule jobs for future execution
 - **Failure Handling**: Built-in retry logic with customizable strategies
+- **OpenTelemetry Support**: Built-in metrics and distributed tracing
+- **Easy Testing**: Test hooks for integration testing without polling
 
 ## Quick Start
 
@@ -96,7 +99,10 @@ public class InMemoryJobStorageProvider : IJobStorageProvider<JobRecord>
 
 ```csharp
 // Program.cs
-services.AddGusto<JobRecord, InMemoryJobStorageProvider>(configuration);
+services.AddGusto<JobRecord, InMemoryJobStorageProvider>(
+    configuration,
+    lifetime: ServiceLifetime.Scoped  // Default: Scoped. Options: Scoped, Transient, Singleton
+);
 ```
 
 ```json
@@ -259,21 +265,132 @@ public async Task OnHandlerExecutionFailureAsync(MongoJobRecord jobStorageRecord
 public async Task OnHandlerExecutionFailureAsync(MongoJobRecord jobStorageRecord, Exception exception, CancellationToken cancellationToken)
 {
     jobStorageRecord.RetryCount = (jobStorageRecord.RetryCount ?? 0) + 1;
-    
+
     if (jobStorageRecord.RetryCount > 3)
     {
         // Move to dead letter collection for manual inspection
-        await _deadLetterCollection.InsertOneAsync(new DeadLetterJob 
+        await _deadLetterCollection.InsertOneAsync(new DeadLetterJob
         {
             OriginalJob = jobStorageRecord,
             FailureReason = exception.Message,
             FailedAt = DateTime.UtcNow
         }, cancellationToken: cancellationToken);
-        
+
         await MarkJobAsCompleteAsync(jobStorageRecord, cancellationToken);
         return;
     }
-    
+
     // Continue with retry logic...
 }
 ```
+
+### Service Lifetime Configuration
+
+GUSTO supports Scoped, Transient, and Singleton service lifetimes for `JobQueue` and `IJobStorageProvider`:
+
+```csharp
+// Scoped (default) - New instance per batch
+services.AddGusto<JobRecord, InMemoryJobStorageProvider>(
+    configuration,
+    ServiceLifetime.Scoped);
+
+// Transient - New instance for every resolution
+services.AddGusto<JobRecord, InMemoryJobStorageProvider>(
+    configuration,
+    ServiceLifetime.Transient);
+
+// Singleton - Single instance for application lifetime
+services.AddGusto<JobRecord, InMemoryJobStorageProvider>(
+    configuration,
+    ServiceLifetime.Singleton);
+```
+
+**Use Cases:**
+- **Scoped**: Best for database contexts (EF Core DbContext, MongoDB scoped collections)
+- **Singleton**: Best for thread-safe in-memory implementations or stateless providers
+- **Transient**: Rarely needed, but available for special cases
+
+## OpenTelemetry Integration
+
+GUSTO includes built-in OpenTelemetry support for metrics and distributed tracing.
+
+### Available Metrics
+
+| Metric | Type | Description | Tags |
+|--------|------|-------------|------|
+| `gusto.jobs.processed` | Counter | Total successful jobs | `job.type`, `job.method` |
+| `gusto.jobs.failed` | Counter | Total failed jobs | `job.type`, `job.method`, `exception.type` |
+| `gusto.job.duration` | Histogram | Job execution time (ms) | `job.type`, `job.method`, `job.status` |
+| `gusto.batch.duration` | Histogram | Batch processing time (ms) | - |
+| `gusto.batch.size` | Histogram | Jobs per batch | - |
+
+### Available Traces
+
+- **ProcessBatch** - Span for entire batch with `batch.size` tag
+- **ExecuteJob** - Span for individual jobs with `job.tracking_id`, `job.type`, `job.method` tags
+
+### Configuration
+
+Add GUSTO telemetry to your OpenTelemetry configuration:
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing
+        .AddSource(GustoTelemetry.ActivitySourceName)
+        .AddAspNetCoreInstrumentation()
+        .AddOtlpExporter())
+    .WithMetrics(metrics => metrics
+        .AddMeter(GustoTelemetry.MeterName)
+        .AddAspNetCoreInstrumentation()
+        .AddOtlpExporter());
+```
+
+Export to Prometheus, Grafana, Jaeger, or any OpenTelemetry-compatible backend.
+
+## Testing
+
+GUSTO provides test barriers for easy integration testing without polling or delays.
+
+### Integration Test Example
+
+```csharp
+[Fact]
+public async Task JobQueue_ProcessesJobSuccessfully()
+{
+    // Arrange
+    var services = new ServiceCollection();
+    services.AddGusto<JobRecord, InMemoryJobStorageProvider>(configuration);
+    services.AddScoped<MyService>();
+
+    var serviceProvider = services.BuildServiceProvider();
+    var jobQueue = serviceProvider.GetRequiredService<JobQueue<JobRecord>>();
+    var hostedService = serviceProvider.GetRequiredService<IHostedService>();
+
+    // Set up test barriers
+    JobQueueWorker<JobRecord>.BatchStartBarrier = new TaskCompletionSource();
+    JobQueueWorker<JobRecord>.BatchCompletedBarrier = new TaskCompletionSource();
+
+    // Act
+    await jobQueue.EnqueueAsync<MyService>(s => s.DoWork("test"));
+
+    await hostedService.StartAsync(CancellationToken.None);
+
+    // Let worker process the batch
+    JobQueueWorker<JobRecord>.BatchStartBarrier.SetResult();
+
+    // Wait for batch to complete
+    await JobQueueWorker<JobRecord>.BatchCompletedBarrier.Task;
+
+    await hostedService.StopAsync(CancellationToken.None);
+
+    // Assert
+    Assert.True(MyService.WorkCompleted);
+}
+```
+
+### Test Barriers
+
+- **`BatchStartBarrier`** - Pauses worker at start of batch cycle until signaled
+- **`BatchCompletedBarrier`** - Signals when batch processing completes
+
+This eliminates flaky tests from polling and arbitrary delays.

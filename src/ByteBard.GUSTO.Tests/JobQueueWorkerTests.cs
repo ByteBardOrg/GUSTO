@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -70,9 +72,12 @@ public class JobQueueWorkerTests
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
-        var services = Substitute.For<IServiceProvider>();
 
-        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
+        var services = new ServiceCollection();
+        services.AddScoped(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
+
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
 
         using var cts = new CancellationTokenSource(50);
 
@@ -102,13 +107,15 @@ public class JobQueueWorkerTests
         storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(new List<TestJob> { job });
 
-        var services = new ServiceCollection().BuildServiceProvider();
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
-        
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
+
         // Act
         TestableJob.CreateSemaphore();
         var running = worker.StartAsync(CancellationToken.None);
@@ -136,14 +143,16 @@ public class JobQueueWorkerTests
         var storage = Substitute.For<IJobStorageProvider<TestJob>>();
         storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(new List<TestJob> { job });
-        
-        var services = new ServiceCollection().BuildServiceProvider();
+
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
-        
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
+
         // Act
         TestableJob.CreateSemaphore();
         var running = worker.StartAsync(CancellationToken.None);
@@ -161,11 +170,14 @@ public class JobQueueWorkerTests
         storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns<Task<IEnumerable<TestJob>>>(_ => throw new Exception("storage error"));
 
-        var services = Substitute.For<IServiceProvider>();
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
+
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
 
         using var cts = new CancellationTokenSource(100);
 
@@ -189,7 +201,9 @@ public class JobQueueWorkerTests
             .When(x => x.StoreJobAsync(Arg.Any<TestJob>(), Arg.Any<CancellationToken>()))
             .Do(ci => capturedJob = ci.Arg<TestJob>());
 
-        var services = new ServiceCollection().BuildServiceProvider();
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
@@ -199,7 +213,7 @@ public class JobQueueWorkerTests
         storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
             .Returns(_ => capturedJob != null ? new[] { capturedJob } : Array.Empty<TestJob>());
 
-        var worker = new JobQueueWorker<TestJob>(services, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
 
         using var cts = new CancellationTokenSource(150);
 
@@ -220,14 +234,26 @@ public class JobQueueWorkerTests
         string ProcessData(string input);
         bool IsDisposed { get; }
     }
+    
+    public interface ISingletonTestService
+    {
+        string ProcessData(string input);
+        bool IsDisposed { get; }
+    }
+    
+    public interface ITransientTestService
+    {
+        string ProcessData(string input);
+        bool IsDisposed { get; }
+    }
 
-    public class ScopedTestService : IScopedTestService, IDisposable
+    public class TestService : ISingletonTestService, IScopedTestService, ITransientTestService, IDisposable
     {
         public bool IsDisposed { get; private set; }
 
         public string ProcessData(string input)
         {
-            if (IsDisposed) throw new ObjectDisposedException(nameof(ScopedTestService));
+            if (IsDisposed) throw new ObjectDisposedException(nameof(TestService));
             return $"Processed: {input}";
         }
 
@@ -240,11 +266,15 @@ public class JobQueueWorkerTests
     public class JobWithScopedDependency
     {
         private readonly IScopedTestService _scopedService;
+        private readonly ISingletonTestService _singletonService;
+        private readonly ITransientTestService  _transientService;
         private readonly ITestResultCollector _resultCollector;
 
-        public JobWithScopedDependency(IScopedTestService scopedService, ITestResultCollector resultCollector)
+        public JobWithScopedDependency(ISingletonTestService singletonService, IScopedTestService scopedService,ITransientTestService transientService, ITestResultCollector resultCollector)
         {
+            _singletonService = singletonService;
             _scopedService = scopedService;
+            _transientService = transientService;
             _resultCollector = resultCollector;
         }
 
@@ -327,14 +357,17 @@ public class JobQueueWorkerTests
             .Returns(new List<TestJob> { job }, new List<TestJob>());
 
         var services = new ServiceCollection();
-        services.AddScoped<IScopedTestService, ScopedTestService>();
+        services.AddScoped<IScopedTestService, TestService>();
+        services.AddSingleton<ISingletonTestService, TestService>();
+        services.AddTransient<ITransientTestService, TestService>();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
         services.AddSingleton<ITestResultCollector>(resultCollector);
         var serviceProvider = services.BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(GetTestConfig());
 
-        var worker = new JobQueueWorker<TestJob>(serviceProvider, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
 
         // Act
         var running = worker.StartAsync(CancellationToken.None);
@@ -379,14 +412,17 @@ public class JobQueueWorkerTests
             .Returns(new List<TestJob> { job1, job2 }, new List<TestJob>());
 
         var services = new ServiceCollection();
-        services.AddScoped<IScopedTestService, ScopedTestService>();
+        services.AddScoped<IScopedTestService, TestService>();
+        services.AddSingleton<ISingletonTestService, TestService>();
+        services.AddTransient<ITransientTestService, TestService>();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
         services.AddSingleton<ITestResultCollector>(resultCollector);
         var serviceProvider = services.BuildServiceProvider();
 
         var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
         var config = Options.Create(new GustoConfig { Concurrency = 2, PollInterval = TimeSpan.FromMilliseconds(10), BatchSize = 2 });
 
-        var worker = new JobQueueWorker<TestJob>(serviceProvider, storage, config, logger);
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
 
         // Act
         var running = worker.StartAsync(CancellationToken.None);
@@ -400,5 +436,98 @@ public class JobQueueWorkerTests
         Assert.Equal(2, results.Count);
         Assert.Contains("Processed: job1", results);
         Assert.Contains("Processed: job2", results);
+    }
+
+    [Theory]
+    [InlineData(ServiceLifetime.Scoped)]
+    [InlineData(ServiceLifetime.Transient)]
+    [InlineData(ServiceLifetime.Singleton)]
+    public async Task AddGusto_WithDifferentLifetimes_RegistersAndExecutesJobsCorrectly(ServiceLifetime lifetime)
+    {
+        // Arrange
+        var resultCollector = new TestResultCollector();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string>
+            {
+                ["Gusto:Concurrency"] = "1",
+                ["Gusto:PollInterval"] = "00:00:00.010",
+                ["Gusto:BatchSize"] = "1"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddSingleton<IConfiguration>(configuration);
+        services.AddScoped<IScopedTestService, TestService>();
+        services.AddSingleton<ISingletonTestService, TestService>();
+        services.AddTransient<ITransientTestService, TestService>();
+        services.AddSingleton<ITestResultCollector>(resultCollector);
+        services.AddGusto<TestJob, InMemoryJobStorage>(configuration, lifetime);
+
+        services.AddLogging();
+        var serviceProvider = services.BuildServiceProvider();
+        var jobQueue = serviceProvider.GetRequiredService<JobQueue<TestJob>>();
+
+        // Act
+        await jobQueue.EnqueueAsync<JobWithScopedDependency>(j => j.ExecuteWithScopedService("test-lifetime"));
+
+        // Start the hosted service manually
+        var hostedService = serviceProvider.GetRequiredService<IHostedService>();
+        await hostedService.StartAsync(CancellationToken.None);
+
+        await resultCollector.WaitForCompletionAsync(1, TimeSpan.FromSeconds(5));
+        await hostedService.StopAsync(CancellationToken.None);
+
+        // Assert
+        var results = resultCollector.GetResults();
+        Assert.Single(results);
+        Assert.Equal("Processed: test-lifetime", results[0]);
+    }
+
+    public class InMemoryJobStorage : IJobStorageProvider<TestJob>
+    {
+        private static readonly List<TestJob> _jobs = new();
+
+        public Task<IEnumerable<TestJob>> GetBatchAsync(JobSearchParams<TestJob> searchParams, CancellationToken cancellationToken = default)
+        {
+            lock (_jobs)
+            {
+                var matching = _jobs.Where(searchParams.Match.Compile())
+                    .Take(searchParams.Limit)
+                    .ToList();
+                return Task.FromResult<IEnumerable<TestJob>>(matching);
+            }
+        }
+
+        public Task StoreJobAsync(TestJob job, CancellationToken cancellationToken = default)
+        {
+            lock (_jobs)
+            {
+                _jobs.Add(job);
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task MarkJobAsCompleteAsync(TestJob job, CancellationToken cancellationToken = default)
+        {
+            lock (_jobs)
+            {
+                var existing = _jobs.FirstOrDefault(j => j.TrackingId == job.TrackingId);
+                if (existing != null)
+                {
+                    existing.IsComplete = true;
+                }
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task CancelJobAsync(Guid trackingId, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
+
+        public Task OnHandlerExecutionFailureAsync(TestJob job, Exception exception, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
     }
 }
