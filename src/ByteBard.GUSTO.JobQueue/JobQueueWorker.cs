@@ -140,7 +140,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
             return;
         }
 
-        await ProcessBatchAsync(jobStorageRecords, storage, scope.ServiceProvider, parallelOptions);
+        await ProcessBatchAsync(jobStorageRecords, storage, parallelOptions);
     }
 
     private async Task<IEnumerable<TStorageRecord>> FetchPendingJobsAsync(
@@ -162,7 +162,6 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
     private async Task ProcessBatchAsync(
         List<TStorageRecord> jobStorageRecords,
         IJobStorageProvider<TStorageRecord> storage,
-        IServiceProvider scopedServiceProvider,
         ParallelOptions parallelOptions)
     {
         using var batchActivity = ActivitySource.StartActivity("ProcessBatch");
@@ -173,7 +172,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
         await Parallel.ForEachAsync(jobStorageRecords, parallelOptions, async (storedJob, ct) =>
         {
-            await ExecuteJobAsync(storedJob, storage, scopedServiceProvider, ct);
+            await ExecuteJobAsync(storedJob, storage, ct);
         });
 
         batchStopwatch.Stop();
@@ -184,7 +183,6 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
     private async Task ExecuteJobAsync(
         TStorageRecord storedJob,
         IJobStorageProvider<TStorageRecord> storage,
-        IServiceProvider scopedServiceProvider,
         CancellationToken ct)
     {
         using var jobActivity = ActivitySource.StartActivity("ExecuteJob");
@@ -197,7 +195,8 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         {
             var jobType = Type.GetType(storedJob.JobType);
             var arguments = JsonConvert.DeserializeObject<object[]>(storedJob.ArgumentsJson, _settings);
-            var jobInstance = ActivatorUtilities.CreateInstance(scopedServiceProvider, jobType);
+            using var scope = _serviceProvider.CreateScope();
+            var jobInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, jobType);
             var method = jobType.GetMethod(storedJob.MethodName);
             await (Task)method.Invoke(jobInstance, arguments);
             

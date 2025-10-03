@@ -4,7 +4,7 @@ using Newtonsoft.Json;
 
 public class InMemoryJobStorageProvider : IJobStorageProvider<JobRecord>
 {
-    private readonly List<JobRecord> _jobs = new();
+    private static readonly List<JobRecord> _jobs = new();
     private readonly object _lock = new();
 
     public Task StoreJobAsync(JobRecord jobStorageRecord, CancellationToken cancellationToken)
