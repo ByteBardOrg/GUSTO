@@ -128,11 +128,14 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
     private async Task ProcessBatchCycleAsync(ParallelOptions parallelOptions, CancellationToken stoppingToken)
     {
-        using var scope = _serviceProvider.CreateScope();
-        var storage = scope.ServiceProvider.GetRequiredService<IJobStorageProvider<TStorageRecord>>();
+        List<TStorageRecord> jobStorageRecords;
 
-        var jobs = await FetchPendingJobsAsync(storage, stoppingToken);
-        var jobStorageRecords = jobs.ToList();
+        using (var scope = _serviceProvider.CreateScope())
+        {
+            var storage = scope.ServiceProvider.GetRequiredService<IJobStorageProvider<TStorageRecord>>();
+            var jobs = await FetchPendingJobsAsync(storage, stoppingToken);
+            jobStorageRecords = jobs.ToList();
+        }
 
         if (!jobStorageRecords.Any())
         {
@@ -140,7 +143,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
             return;
         }
 
-        await ProcessBatchAsync(jobStorageRecords, storage, parallelOptions);
+        await ProcessBatchAsync(jobStorageRecords, parallelOptions);
     }
 
     private async Task<IEnumerable<TStorageRecord>> FetchPendingJobsAsync(
@@ -161,7 +164,6 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
     private async Task ProcessBatchAsync(
         List<TStorageRecord> jobStorageRecords,
-        IJobStorageProvider<TStorageRecord> storage,
         ParallelOptions parallelOptions)
     {
         using var batchActivity = ActivitySource.StartActivity("ProcessBatch");
@@ -172,7 +174,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
         await Parallel.ForEachAsync(jobStorageRecords, parallelOptions, async (storedJob, ct) =>
         {
-            await ExecuteJobAsync(storedJob, storage, ct);
+            await ExecuteJobAsync(storedJob, ct);
         });
 
         batchStopwatch.Stop();
@@ -182,7 +184,6 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
     private async Task ExecuteJobAsync(
         TStorageRecord storedJob,
-        IJobStorageProvider<TStorageRecord> storage,
         CancellationToken ct)
     {
         using var jobActivity = ActivitySource.StartActivity("ExecuteJob");
@@ -191,15 +192,18 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         jobActivity?.SetTag("job.method", storedJob.MethodName);
 
         var jobStopwatch = Stopwatch.StartNew();
+
+        using var scope = _serviceProvider.CreateScope();
+        var storage = scope.ServiceProvider.GetRequiredService<IJobStorageProvider<TStorageRecord>>();
+
         try
         {
             var jobType = Type.GetType(storedJob.JobType);
             var arguments = JsonConvert.DeserializeObject<object[]>(storedJob.ArgumentsJson, _settings);
-            using var scope = _serviceProvider.CreateScope();
             var jobInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, jobType);
             var method = jobType.GetMethod(storedJob.MethodName);
             await (Task)method.Invoke(jobInstance, arguments);
-            
+
             await storage.MarkJobAsCompleteAsync(storedJob, ct);
             RecordJobSuccess(storedJob, jobStopwatch, jobActivity);
         }
