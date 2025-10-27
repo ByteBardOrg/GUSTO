@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Do it with GUSTO</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;500&family=Bricolage+Grotesque:wght@600&family=Chivo:wght@500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="top-nav">
+        <span class="brand">Do it with GUSTO</span>
+        <div class="anchor-links">
+            <a href="#overview">Getting Started</a>
+            <a href="#provider">Provider</a>
+            <a href="#batching">Batching</a>
+            <a href="#continuations">Continuations</a>
+            <a href="#cron">Cron</a>
+            <a href="#retries">Retries</a>
+            <a href="#testing">Testing</a>
+        </div>
+        <a class="repo-link" href="https://github.com/ByteBardOrg/GUSTO" target="_blank" rel="noopener" aria-label="GitHub repository">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 .5C5.648.5.5 5.65.5 12.011c0 5.104 3.292 9.434 7.86 10.964.574.107.785-.248.785-.551 0-.272-.01-.995-.015-1.953-3.199.695-3.876-1.542-3.876-1.542-.523-1.33-1.277-1.684-1.277-1.684-1.043-.714.079-.699.079-.699 1.152.081 1.758 1.184 1.758 1.184 1.026 1.759 2.694 1.252 3.35.958.104-.744.402-1.253.732-1.54-2.553-.29-5.238-1.278-5.238-5.689 0-1.256.447-2.285 1.18-3.09-.118-.289-.512-1.456.111-3.037 0 0 .964-.309 3.16 1.181a10.932 10.932 0 0 1 2.877-.386c.976.004 1.96.132 2.876.386 2.197-1.49 3.16-1.181 3.16-1.181.625 1.581.23 2.748.113 3.037.734.805 1.18 1.834 1.18 3.09 0 4.422-2.689 5.395-5.254 5.679.414.356.783 1.055.783 2.127 0 1.536-.014 2.775-.014 3.154 0 .305.207.663.79.55C20.213 21.439 23.5 17.113 23.5 12.011 23.5 5.65 18.352.5 12 .5Z"/>
+            </svg>
+        </a>
+    </nav>
+
+    <main>
+        <header class="hero">
+            <div class="section-tag">Own the data, use the worker</div>
+            <h1>Customize GUSTO without touching the worker loop.</h1>
+            <p>
+                This is probably the most flexible and easy to understand job runner out there. Iimplement an <span class="code-inline">IJobStorageRecord</span> and an
+                <span class="code-inline">IJobStorageProvider</span>, then the libraries hosted worker does the rest.
+                The drop-in samples below borrow from a real-world deployment to demonstrate what’s possible,
+                but they exist purely as reference code—you still own your schema, provider, and policies while GUSTO continues
+                to supply the hosted worker. These examples assume PostgreSQL plus EF Core for concreteness, yet the patterns
+                translate to any database as long as your provider implements the two interfaces.
+            </p>
+        </header>
+
+        <section id="overview">
+            <div class="section-tag">00 · Quick Start</div>
+            <h2>Boot the stock worker against your schema.</h2>
+            <p>
+                Start exactly where the README starts. Install the NuGet package, implement the bare-minimum storage record,
+                wire up the in-box worker with <span class="code-inline">AddGusto</span>, and configure <span class="code-inline">BatchSize</span>,
+                <span class="code-inline">Concurrency</span>, and <span class="code-inline">PollInterval</span> in <span class="code-inline">appsettings.json</span>.
+                No custom fields, no extra logic—this is the stock loop. Once registered, inject <span class="code-inline">JobQueue&lt;JobRecord&gt;</span> and enqueue work directly.
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#install">Copy</button>
+<pre id="install"><code class="language-bash">dotnet add package ByteBard.GUSTO</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#record">Copy</button>
+<pre id="record"><code class="language-csharp">public class JobRecord : IJobStorageRecord
+{
+    public Guid TrackingId { get; set; }
+    public DateTime CreatedOn { get; set; }
+    public DateTime? ExecuteAfter { get; set; }
+    public DateTime? ExpireOn { get; set; }
+    public bool IsComplete { get; set; }
+    public string JobType { get; set; }
+    public string MethodName { get; set; }
+    public string ArgumentsJson { get; set; }
+}</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#configure">Copy</button>
+<pre id="configure"><code class="language-csharp">// Program.cs
+builder.Services.AddDbContext&lt;ExampleDbContext&gt;(options =&gt;
+    options.UseNpgsql(connectionString));
+
+builder.Services.AddScoped&lt;IJobStorageProvider&lt;JobRecord&gt;, ExampleJobStorageProvider&gt;();
+
+builder.Services.AddGusto&lt;JobRecord, ExampleJobStorageProvider&gt;(
+    builder.Configuration.GetSection("Gusto"),
+    ServiceLifetime.Scoped);
+</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#enqueue-default">Copy</button>
+<pre id="enqueue-default"><code class="language-csharp">public class UserController : ControllerBase
+{
+    private readonly JobQueue&lt;JobRecord&gt; _jobQueue;
+
+    public UserController(JobQueue&lt;JobRecord&gt; jobQueue)
+    {
+        _jobQueue = jobQueue;
+    }
+
+    [HttpPost("register")]
+    public async Task<IActionResult> Register(RegisterRequest request)
+    {
+        await _jobQueue.EnqueueAsync&lt;EmailService&gt;(
+            service =&gt; service.SendWelcomeEmailAsync(request.Email, request.UserName));
+
+        return Ok();
+    }
+}</code></pre>
+            </div>
+            <p>
+                The rest of this page builds from there: once you’ve seen the default loop, you can start extending the storage record and provider
+                to unlock batching, continuations, cron, and retry behaviors.
+            </p>
+        </section>
+
+        <section id="provider">
+            <div class="section-tag">01 · Provider</div>
+            <h2>Full EF Core provider (Storage + Scheduling brain)</h2>
+            <p>
+                The worker the package ships is intentionally thin; all orchestration happens here. The example below mirrors a production deployment
+                that keeps everything in PostgreSQL via EF Core: the baseline only filters for unfinished records, saves completions, and nudges failures forward.
+                Continuations, cron scheduling, and custom retry policies are layered on later as optional extensions.
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#provider-class">Copy</button>
+<pre id="provider-class"><code class="language-csharp">public class ExampleJobStorageProvider : IJobStorageProvider&lt;JobRecord&gt;
+{
+    private readonly ExampleDbContext _context;
+
+    public ExampleJobStorageProvider(ExampleDbContext context) =&gt; _context = context;
+
+    public async Task StoreJobAsync(JobRecord jobStorageRecord, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(jobStorageRecord);
+        try
+        {
+            _context.JobRecords.Add(jobStorageRecord);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message?.Contains("duplicate key") == true)
+        {
+            throw new InvalidOperationException($"Job with TrackingId {jobStorageRecord.TrackingId} already exists.", ex);
+        }
+    }
+
+    public async Task&lt;IEnumerable&lt;JobRecord&gt;&gt; GetBatchAsync(
+        JobSearchParams&lt;JobRecord&gt; parameters,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+
+        var query = _context.JobRecords
+            .Where(j =&gt; !j.IsComplete &&
+                        (j.ExecuteAfter == null || j.ExecuteAfter <= now) &&
+                        (j.ExpireOn == null || j.ExpireOn > now))
+            .OrderBy(j =&gt; j.ExecuteAfter ?? j.CreatedOn)
+            .Take(parameters.Limit);
+
+        var hydrated = await query.ToListAsync(cancellationToken);
+        var predicate = parameters.Match.Compile();
+        return hydrated.Where(predicate);
+    }
+
+    public async Task MarkJobAsCompleteAsync(JobRecord jobStorageRecord, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(jobStorageRecord);
+        var job = await _context.JobRecords.FirstOrDefaultAsync(j =&gt; j.TrackingId == jobStorageRecord.TrackingId, cancellationToken);
+        if (job == null) return;
+
+        // Section 04 (Cron) - reschedule recurring jobs before marking them done
+        if (!string.IsNullOrWhiteSpace(job.CronExpression))
+        {
+            var cronFormat = CronFormat.IncludeSeconds;
+            var parsedCron = CronExpression.Parse(job.CronExpression, cronFormat);
+            var nextOccurrence = parsedCron.GetNextOccurrence(DateTime.UtcNow, TimeZoneInfo.Utc);
+
+            if (nextOccurrence.HasValue)
+            {
+                job.ExecuteAfter = nextOccurrence.Value;
+                job.Status = JobStatus.Ready;
+                job.IsComplete = false;
+                job.LastUpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync(cancellationToken);
+                return;
+            }
+        }
+
+        job.IsComplete = true;
+        job.ExpireOn ??= DateTime.UtcNow.AddDays(30);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task CancelJobAsync(Guid trackingId, CancellationToken cancellationToken) =>
+        await _context.JobRecords
+            .Where(j =&gt; j.TrackingId == trackingId && !j.IsComplete)
+            .ExecuteDeleteAsync(cancellationToken);
+
+    public Task OnHandlerExecutionFailureAsync(
+        JobRecord jobStorageRecord,
+        Exception exception,
+        CancellationToken cancellationToken)
+    {
+        jobStorageRecord.ExecuteAfter = DateTime.UtcNow.AddMinutes(5);
+        return Task.CompletedTask;
+    }
+}</code></pre>
+            </div>
+            <p>
+                Every other scenario on this page extends or calls back into this provider. You never touch the worker loop; you simply
+                change what the worker reads and writes.
+            </p>
+        </section>
+
+        <section id="batching">
+            <div class="section-tag">02 · Batching</div>
+            <h2>Fan out work, gate downstream steps.</h2>
+            <p>
+                A batch is just a <span class="code-inline">Guid</span> written onto each job record. Workers process batch members independently,
+                but continuations won’t fire until <span class="code-inline">CanProcessContinuations</span> reports every row finished (or whatever rule
+                you encode). Here’s the exact helper and provider logic lifted from the reference implementation.
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#batch-record">Copy</button>
+<pre id="batch-record"><code class="language-csharp">// JobRecord additions for batching
+public Guid? BatchId { get; set; }</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#batch-helper">Copy</button>
+<pre id="batch-helper"><code class="language-csharp">// Helper extension that fans out expressions and stores them with a shared BatchId
+public static async Task&lt;Guid&gt; BatchAsync(
+    this JobQueue&lt;JobRecord&gt; queue,
+    params Expression&lt;Func&lt;Task&gt;&gt;[] methodCalls)
+{
+    var batchId = Guid.NewGuid();
+    foreach (var methodCall in methodCalls)
+    {
+        var record = queue.ConstructRecordFromExpression(methodCall, null);
+        record.BatchId = batchId;
+
+        await queue.StorageProvider.StoreJobAsync(record, CancellationToken.None);
+    }
+
+    return batchId;
+}</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#batch-usage">Copy</button>
+<pre id="batch-usage"><code class="language-csharp">var batchId = await jobQueue.BatchAsync(
+    () =&gt; _onboarding.CreateDirectoryEntryAsync(customerId),
+    () =&gt; _billing.ProvisionPlanAsync(customerId),
+    () =&gt; _messaging.SendWelcomeAsync(customerId));
+</code></pre>
+            </div>
+            <p>
+                No provider changes are required beyond what you built in Section 01—the baseline <span class="code-inline">GetBatchAsync</span> already respects
+                <span class="code-inline">IsComplete</span>, <span class="code-inline">ExecuteAfter</span>, and <span class="code-inline">Limit</span>. Add <span class="code-inline">BatchId</span>,
+                enqueue related jobs together, and the default worker handles them independently.
+            </p>
+        </section>
+
+        <section id="continuations">
+            <div class="section-tag">03 · Continuations</div>
+            <h2>Parent/child orchestration managed in the DB.</h2>
+            <p>
+                Continuations are “waiting” jobs tied to either a specific parent (or an entire batch). The helper below writes the row and parks it
+                in <span class="code-inline">JobStatus.WaitingForParent</span>. The provider’s <span class="code-inline">ProcessContinuations</span> and
+                <span class="code-inline">CanProcessContinuations</span> methods determine when to flip those rows back to Ready.
+            </p>
+            <p>
+                Introduce a simple <span class="code-inline">JobStatus</span> enum (plus three new fields) so the provider can reason about state transitions:
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#continuation-status">Copy</button>
+<pre id="continuation-status"><code class="language-csharp">public enum JobStatus
+{
+    Ready,
+    Processing,
+    WaitingForParent,
+    Completed,
+    Failed
+}</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#continue-record">Copy</button>
+<pre id="continue-record"><code class="language-csharp">// JobRecord additions for continuations
+public Guid? ParentJobId { get; set; }
+public bool RunEvenIfParentsFail { get; set; }
+public JobStatus Status { get; set; } = JobStatus.Ready;</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#continue-helper">Copy</button>
+<pre id="continue-helper"><code class="language-csharp">// Helper extension that serializes a continuation and parks it in WaitingForParent
+public static async Task&lt;Guid&gt; ContinueWithAsync(
+    this JobQueue&lt;JobRecord&gt; queue,
+    Guid parentJobId,
+    Expression&lt;Func&lt;Task&gt;&gt; methodCall,
+    CancellationToken cancellationToken = default,
+    bool runEvenIfParentsFail = false)
+{
+    var record = queue.ConstructRecordFromExpression(methodCall, null);
+    record.Status = JobStatus.WaitingForParent;
+    record.ParentJobId = parentJobId;
+    record.RunEvenIfParentsFail = runEvenIfParentsFail;
+    record.LastUpdatedAt = DateTime.UtcNow;
+
+    await queue.StorageProvider.StoreJobAsync(record, cancellationToken);
+    return record.TrackingId;
+}</code></pre>
+            </div>
+            <p>
+                Because these jobs now carry an explicit status, tweak <span class="code-inline">GetBatchAsync</span> to only return rows in the Ready state:
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#continue-getbatch">Copy</button>
+<pre id="continue-getbatch"><code class="language-csharp">// Inside ExampleJobStorageProvider.GetBatchAsync
+var now = DateTime.UtcNow;
+
+var query = _context.JobRecords
+    .Where(j => j.Status == JobStatus.Ready &&
+                !j.IsComplete &&
+                (j.ExecuteAfter == null || j.ExecuteAfter <= now) &&
+                (j.ExpireOn == null || j.ExpireOn > now))
+    .OrderBy(j => j.ExecuteAfter ?? j.CreatedOn)
+    .Take(parameters.Limit);</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#continue-provider">Copy</button>
+<pre id="continue-provider"><code class="language-csharp">// ExampleJobStorageProvider additions inside MarkJobAsCompleteAsync
+// Call this right after you mark a job complete and before returning.
+await ProcessContinuations(jobStorageRecord, cancellationToken);
+
+private async Task ProcessContinuations(JobRecord jobRecord, CancellationToken cancellationToken)
+{
+    // If you kept BatchId from Section 02, this lets continuations wait on entire batches.
+    var parentId = jobRecord.BatchId ?? jobRecord.TrackingId;
+    if (!await CanProcessContinuations(jobRecord, cancellationToken))
+    {
+        return;
+    }
+
+    await _context.JobRecords
+        .Where(j =&gt; j.ParentJobId == parentId && j.Status == JobStatus.WaitingForParent)
+        .ExecuteUpdateAsync(j =&gt; j
+                .SetProperty(x =&gt; x.Status, JobStatus.Ready)
+                .SetProperty(x =&gt; x.ExecuteAfter, DateTime.UtcNow)
+                .SetProperty(x =&gt; x.LastUpdatedAt, DateTime.UtcNow),
+            cancellationToken);
+}
+
+private async Task&lt;bool&gt; CanProcessContinuations(JobRecord jobRecord, CancellationToken cancellationToken)
+{
+    var parentId = jobRecord.BatchId ?? jobRecord.TrackingId;
+
+    var hasContinuationThatRunsOnFailure = await _context.JobRecords
+        .AnyAsync(j =&gt; j.ParentJobId == parentId && j.RunEvenIfParentsFail, cancellationToken);
+
+    if (hasContinuationThatRunsOnFailure)
+    {
+        if (!jobRecord.BatchId.HasValue)
+        {
+            return jobRecord.IsComplete;
+        }
+
+        return await _context.JobRecords
+            .Where(j =&gt; j.BatchId == jobRecord.BatchId)
+            .AllAsync(j =&gt; j.IsComplete, cancellationToken);
+    }
+
+    if (jobRecord.Status == JobStatus.Failed)
+    {
+        return false;
+    }
+
+    if (!jobRecord.BatchId.HasValue)
+    {
+        return jobRecord.IsComplete;
+    }
+
+    return await _context.JobRecords
+        .Where(j =&gt; j.BatchId == jobRecord.BatchId)
+        .AllAsync(j =&gt; j.IsComplete && j.Status != JobStatus.Failed, cancellationToken);
+}</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#continue-usage">Copy</button>
+<pre id="continue-usage"><code class="language-csharp">var parentId = await jobQueue.EnqueueAsync&lt;IImageJob&gt;(
+    job =&gt; job.RenderAsync(assetId));
+
+await jobQueue.ContinueWithAsync(parentId,
+    () =&gt; _cdn.PublishAsync(assetId),
+    runEvenIfParentsFail: false);</code></pre>
+            </div>
+            <p>
+                Because everything is stored server-side, you can troubleshoot or replay flows with SQL alone: inspect batch rows, update statuses, cancel or restart parents.
+            </p>
+        </section>
+
+        <section id="cron">
+            <div class="section-tag">04 · Cron</div>
+            <h2>Recurring jobs without another service.</h2>
+            <p>
+                By combining <span class="code-inline">Cronos</span> with provider-level upserts, you can schedule resilient recurring work.
+                Add two things: (1) cron metadata on the record, and (2) provider methods that reschedule rows instead of marking them complete.
+                The worker still just calls into your provider.
+            </p>
+            <p>
+                Like the continuation section, this drop-in expects the <span class="code-inline">JobStatus</span> field/enum to exist.
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#cron-record">Copy</button>
+<pre id="cron-record"><code class="language-csharp">// JobRecord additions
+public string CronExpression { get; set; }
+public string RecurringJobId { get; set; }</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#cron-provider">Copy</button>
+<pre id="cron-provider"><code class="language-csharp">// ExampleJobStorageProvider additions
+public async Task&lt;JobRecord?&gt; GetRecurringJobByIdAsync(
+    string recurringJobId,
+    CancellationToken cancellationToken) =&gt;
+    _context.JobRecords
+        .Where(j =&gt; j.RecurringJobId == recurringJobId && !j.IsComplete)
+        .FirstOrDefaultAsync(cancellationToken);
+
+// Drop this inside MarkJobAsCompleteAsync before you mark the job finished:
+if (!string.IsNullOrWhiteSpace(job.CronExpression))
+{
+    var cron = CronExpression.Parse(job.CronExpression, CronFormat.IncludeSeconds);
+    var next = cron.GetNextOccurrence(DateTime.UtcNow, TimeZoneInfo.Utc);
+    if (next.HasValue)
+    {
+        job.ExecuteAfter = next.Value;
+        job.Status = JobStatus.Ready;
+        job.IsComplete = false;
+        job.LastUpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(cancellationToken);
+        return;
+    }
+}</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#cron-helper">Copy</button>
+<pre id="cron-helper"><code class="language-csharp">public static async Task&lt;Guid&gt; ScheduleRecurringAsync(
+    this JobQueue&lt;JobRecord&gt; queue,
+    string recurringJobId,
+    Expression&lt;Func&lt;Task&gt;&gt; methodCall,
+    string cronExpression,
+    CancellationToken cancellationToken = default)
+{
+    var cronFormat = CronFormat.IncludeSeconds;
+    var parsedCron = CronExpression.Parse(cronExpression, cronFormat);
+    var nextOccurrence = parsedCron.GetNextOccurrence(DateTime.UtcNow, TimeZoneInfo.Utc)
+        ?? throw new InvalidOperationException($"Cron expression '{cronExpression}' will never execute.");
+
+    if (queue.StorageProvider is ExampleJobStorageProvider provider)
+    {
+        // Allows idempotent scheduling at startup: cancel the previous job with the same recurring ID.
+        var existing = await provider.GetRecurringJobByIdAsync(recurringJobId, cancellationToken);
+        if (existing != null)
+        {
+            await queue.StorageProvider.CancelJobAsync(existing.TrackingId, cancellationToken);
+        }
+    }
+
+    var record = queue.ConstructRecordFromExpression(methodCall, null);
+    record.RecurringJobId = recurringJobId;
+    record.CronExpression = cronExpression;
+    record.ExecuteAfter = nextOccurrence.Value;
+    record.Status = JobStatus.Ready;
+    record.LastUpdatedAt = DateTime.UtcNow;
+
+    await queue.StorageProvider.StoreJobAsync(record, cancellationToken);
+    return record.TrackingId;
+}</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#cron-usage">Copy</button>
+<pre id="cron-usage"><code class="language-csharp">await jobQueue.ScheduleRecurringAsync(
+    recurringJobId: "nightly-ledger",
+    methodCall: () =&gt; _ledger.CloseDayAsync(),
+    cronExpression: "0 0 2 * * *");</code></pre>
+            </div>
+            <p>
+                After adding those snippets, the provider will re-queue the same row for the next cron occurrence instead of marking it complete.
+                That gives you pause/resume/inspect controls with nothing more than SQL updates.
+            </p>
+        </section>
+
+        <section id="retries">
+            <div class="section-tag">05 · Retries</div>
+            <h2>Exponential backoff handled entirely in SQL.</h2>
+            <p>
+                The README calls out “customizable strategies.” This is where you plug them in. The worker invokes
+                <span class="code-inline">OnHandlerExecutionFailureAsync</span> when any handler throws, and you decide how to recover.
+                This sample uses exponential backoff (1s, 2s, 4s …), caps at ten attempts, then marks the job failed so continuation logic can react.
+            </p>
+            <p>
+                Because this strategy updates <span class="code-inline">job.Status</span>, make sure the <span class="code-inline">JobStatus</span> enum/field from Section 03 is present.
+            </p>
+            <p>
+                Swap the simple retry body from section 01 with a call to the helper below:
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#retry-hook">Copy</button>
+<pre id="retry-hook"><code class="language-csharp">public async Task OnHandlerExecutionFailureAsync(
+    JobRecord jobStorageRecord,
+    Exception exception,
+    CancellationToken cancellationToken)
+{
+    await RetryOrFailAsync(jobStorageRecord, exception, cancellationToken);
+}</code></pre>
+            </div>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#retry">Copy</button>
+<pre id="retry"><code class="language-csharp">private async Task RetryOrFailAsync(
+    JobRecord jobStorageRecord,
+    Exception exception,
+    CancellationToken cancellationToken)
+{
+    const int MaxRetries = 10;
+    ArgumentNullException.ThrowIfNull(jobStorageRecord);
+    ArgumentNullException.ThrowIfNull(exception);
+
+    var job = await _context.JobRecords
+        .FirstOrDefaultAsync(j =&gt; j.TrackingId == jobStorageRecord.TrackingId, cancellationToken);
+
+    if (job == null) return;
+
+    var newFailureCount = job.FailureCount + 1;
+
+    if (newFailureCount >= MaxRetries)
+    {
+        job.FailureCount = newFailureCount;
+        job.LastFailureReason = exception.Message;
+        job.Status = JobStatus.Failed;
+        job.LastFailureTime = DateTime.UtcNow;
+        job.LastUpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync(cancellationToken);
+        await MarkJobAsCompleteAsync(jobStorageRecord, cancellationToken);
+        return;
+    }
+
+    var delaySeconds = Math.Pow(2, newFailureCount - 1);
+    job.FailureCount = newFailureCount;
+    job.LastFailureReason = exception.Message;
+    job.LastFailureTime = DateTime.UtcNow;
+    job.ExecuteAfter = DateTime.UtcNow.AddSeconds(delaySeconds);
+    job.Status = JobStatus.Ready;
+    job.LastUpdatedAt = DateTime.UtcNow;
+
+    await _context.SaveChangesAsync(cancellationToken);
+}</code></pre>
+            </div>
+            <p>
+                Want jitter, custom limits, or dead-lettering? Branch on <span class="code-inline">JobType</span> or <span class="code-inline">FailureCount</span> inside this method and store whatever telemetry you need—the worker remains oblivious.
+            </p>
+        </section>
+
+        <section id="testing">
+            <div class="section-tag">06 · Testing</div>
+            <h2>Deterministic integration tests.</h2>
+            <p>
+                The library ships with test barriers built in, so you can run the worker in-process without flakiness. Set <span class="code-inline">BatchStartBarrier</span> to pause the worker right before it drains a batch, and <span class="code-inline">BatchCompletedBarrier</span> to know when the batch is done. This gives you deterministic integration tests without polling.
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#test-snippet">Copy</button>
+<pre id="test-snippet"><code class="language-csharp">[Fact]
+public async Task JobQueue_ProcessesJobSuccessfully()
+{
+    var services = new ServiceCollection();
+    services.AddGusto<JobRecord, ExampleJobStorageProvider>(configuration);
+    services.AddScoped<MyService>();
+
+    var provider = services.BuildServiceProvider();
+    var jobQueue = provider.GetRequiredService&lt;JobQueue<JobRecord>>();
+    var hostedService = provider.GetRequiredService&lt;IHostedService>();
+
+    JobQueueWorker<JobRecord>.BatchStartBarrier = new TaskCompletionSource();
+    JobQueueWorker<JobRecord>.BatchCompletedBarrier = new TaskCompletionSource();
+
+    await jobQueue.EnqueueAsync<MyService>(svc => svc.DoWork("test"));
+
+    await hostedService.StartAsync(CancellationToken.None);
+    JobQueueWorker<JobRecord>.BatchStartBarrier.SetResult();
+    await JobQueueWorker<JobRecord>.BatchCompletedBarrier.Task;
+    await hostedService.StopAsync(CancellationToken.None);
+
+    Assert.True(MyService.WorkCompleted);
+}</code></pre>
+            </div>
+            <p>
+                Keep barriers confined to tests—they’re static, so always reset them when your test finishes. This pattern makes GUSTO easy to exercise in CI without resorting to sleeps or polling loops.
+            </p>
+        </section>
+
+        <footer>
+            Built on ByteBard.GUSTO · Storage-owned orchestration since 2024
+        </footer>
+    </main>
+
+    <script>
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const code = document.querySelector(btn.dataset.copy);
+                if (!code) return;
+                navigator.clipboard.writeText(code.innerText.trim()).then(() => {
+                    btn.textContent = 'Copied';
+                    setTimeout(() => btn.textContent = 'Copy', 1600);
+                });
+            });
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-csharp.min.js"></script>
+</body>
+</html>
