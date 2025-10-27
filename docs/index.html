@@ -20,7 +20,9 @@
             <a href="#continuations">Continuations</a>
             <a href="#cron">Cron</a>
             <a href="#retries">Retries</a>
+            <a href="#observability">Observability</a>
             <a href="#testing">Testing</a>
+            <a href="#faq">FAQ</a>
         </div>
         <a class="repo-link" href="https://github.com/ByteBardOrg/GUSTO" target="_blank" rel="noopener" aria-label="GitHub repository">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -34,12 +36,11 @@
             <div class="section-tag">Own the data, use the worker</div>
             <h1>Customize GUSTO without touching the worker loop.</h1>
             <p>
-                This is probably the most flexible and easy to understand job runner out there. Iimplement an <span class="code-inline">IJobStorageRecord</span> and an
-                <span class="code-inline">IJobStorageProvider</span>, then the libraries hosted worker does the rest.
-                The drop-in samples below borrow from a real-world deployment to demonstrate what’s possible,
-                but they exist purely as reference code—you still own your schema, provider, and policies while GUSTO continues
-                to supply the hosted worker. These examples assume PostgreSQL plus EF Core for concreteness, yet the patterns
-                translate to any database as long as your provider implements the two interfaces.
+                This is probably the most flexible and easy to understand job runner out there. Implement an <span class="code-inline">IJobStorageRecord</span> and an
+                <span class="code-inline">IJobStorageProvider</span>, then the library’s hosted worker does the rest. Out of the box you get a WYSIWYG background queue: enqueue work, the worker runs it, that’s it.
+            </p>
+            <p class="intro-note">
+                Every section below shows an <em>optional</em> way to extend that base behavior. Because you own the record and the provider, you can bolt on batching, continuations, cron schedules, richer retries, and telemetry whenever you need them—and ignore what you don’t.
             </p>
         </header>
 
@@ -146,16 +147,11 @@ builder.Services.AddGusto&lt;JobRecord, ExampleJobStorageProvider&gt;(
     {
         var now = DateTime.UtcNow;
 
-        var query = _context.JobRecords
-            .Where(j =&gt; !j.IsComplete &&
-                        (j.ExecuteAfter == null || j.ExecuteAfter <= now) &&
-                        (j.ExpireOn == null || j.ExpireOn > now))
-            .OrderBy(j =&gt; j.ExecuteAfter ?? j.CreatedOn)
+        // Parameters are used by the worker to provide a base filter (IsComplete && !Expired && ExecuteAfter > Now)
+        // These are expected in all implementations, but can be built upon.
+        return _context.JobRecords
+            .Where(parameters.Match.Compile())
             .Take(parameters.Limit);
-
-        var hydrated = await query.ToListAsync(cancellationToken);
-        var predicate = parameters.Match.Compile();
-        return hydrated.Where(predicate);
     }
 
     public async Task MarkJobAsCompleteAsync(JobRecord jobStorageRecord, CancellationToken cancellationToken)
@@ -163,24 +159,6 @@ builder.Services.AddGusto&lt;JobRecord, ExampleJobStorageProvider&gt;(
         ArgumentNullException.ThrowIfNull(jobStorageRecord);
         var job = await _context.JobRecords.FirstOrDefaultAsync(j =&gt; j.TrackingId == jobStorageRecord.TrackingId, cancellationToken);
         if (job == null) return;
-
-        // Section 04 (Cron) - reschedule recurring jobs before marking them done
-        if (!string.IsNullOrWhiteSpace(job.CronExpression))
-        {
-            var cronFormat = CronFormat.IncludeSeconds;
-            var parsedCron = CronExpression.Parse(job.CronExpression, cronFormat);
-            var nextOccurrence = parsedCron.GetNextOccurrence(DateTime.UtcNow, TimeZoneInfo.Utc);
-
-            if (nextOccurrence.HasValue)
-            {
-                job.ExecuteAfter = nextOccurrence.Value;
-                job.Status = JobStatus.Ready;
-                job.IsComplete = false;
-                job.LastUpdatedAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync(cancellationToken);
-                return;
-            }
-        }
 
         job.IsComplete = true;
         job.ExpireOn ??= DateTime.UtcNow.AddDays(30);
@@ -192,13 +170,19 @@ builder.Services.AddGusto&lt;JobRecord, ExampleJobStorageProvider&gt;(
             .Where(j =&gt; j.TrackingId == trackingId && !j.IsComplete)
             .ExecuteDeleteAsync(cancellationToken);
 
-    public Task OnHandlerExecutionFailureAsync(
+    public async Task OnHandlerExecutionFailureAsync(
         JobRecord jobStorageRecord,
         Exception exception,
         CancellationToken cancellationToken)
     {
-        jobStorageRecord.ExecuteAfter = DateTime.UtcNow.AddMinutes(5);
-        return Task.CompletedTask;
+        ArgumentNullException.ThrowIfNull(jobStorageRecord);
+        ArgumentNullException.ThrowIfNull(exception);
+
+        var job = await _context.JobRecords.FirstOrDefaultAsync(j => j.TrackingId == jobStorageRecord.TrackingId, cancellationToken);
+        if (job == null) return;
+
+        job.ExecuteAfter = DateTime.UtcNow.AddMinutes(5);
+        await _context.SaveChangesAsync(cancellationToken);
     }
 }</code></pre>
             </div>
@@ -211,6 +195,7 @@ builder.Services.AddGusto&lt;JobRecord, ExampleJobStorageProvider&gt;(
         <section id="batching">
             <div class="section-tag">02 · Batching</div>
             <h2>Fan out work, gate downstream steps.</h2>
+            <p class="scenario-note">Optional extension: add a shared <span class="code-inline">BatchId</span> so related jobs run in parallel but unlock dependents together.</p>
             <p>
                 A batch is just a <span class="code-inline">Guid</span> written onto each job record. Workers process batch members independently,
                 but continuations won’t fire until <span class="code-inline">CanProcessContinuations</span> reports every row finished (or whatever rule
@@ -258,6 +243,7 @@ public static async Task&lt;Guid&gt; BatchAsync(
         <section id="continuations">
             <div class="section-tag">03 · Continuations</div>
             <h2>Parent/child orchestration managed in the DB.</h2>
+            <p class="scenario-note">Optional extension: park follow-up work in <span class="code-inline">WaitingForParent</span> until a parent job (or entire batch) finishes.</p>
             <p>
                 Continuations are “waiting” jobs tied to either a specific parent (or an entire batch). The helper below writes the row and parks it
                 in <span class="code-inline">JobStatus.WaitingForParent</span>. The provider’s <span class="code-inline">ProcessContinuations</span> and
@@ -313,11 +299,8 @@ public static async Task&lt;Guid&gt; ContinueWithAsync(
 var now = DateTime.UtcNow;
 
 var query = _context.JobRecords
-    .Where(j => j.Status == JobStatus.Ready &&
-                !j.IsComplete &&
-                (j.ExecuteAfter == null || j.ExecuteAfter <= now) &&
-                (j.ExpireOn == null || j.ExpireOn > now))
-    .OrderBy(j => j.ExecuteAfter ?? j.CreatedOn)
+    .Where(j => j.Status == JobStatus.Ready)
+    .Where(parameters.Match.Compile())
     .Take(parameters.Limit);</code></pre>
             </div>
             <div class="code-block">
@@ -395,6 +378,7 @@ await jobQueue.ContinueWithAsync(parentId,
         <section id="cron">
             <div class="section-tag">04 · Cron</div>
             <h2>Recurring jobs without another service.</h2>
+            <p class="scenario-note">Optional extension: add cron metadata so the provider reschedules recurring work without external schedulers.</p>
             <p>
                 By combining <span class="code-inline">Cronos</span> with provider-level upserts, you can schedule resilient recurring work.
                 Add two things: (1) cron metadata on the record, and (2) provider methods that reschedule rows instead of marking them complete.
@@ -486,6 +470,7 @@ if (!string.IsNullOrWhiteSpace(job.CronExpression))
         <section id="retries">
             <div class="section-tag">05 · Retries</div>
             <h2>Exponential backoff handled entirely in SQL.</h2>
+            <p class="scenario-note">Optional extension: track failure metadata and control backoff directly in your provider.</p>
             <p>
                 The README calls out “customizable strategies.” This is where you plug them in. The worker invokes
                 <span class="code-inline">OnHandlerExecutionFailureAsync</span> when any handler throws, and you decide how to recover.
@@ -494,6 +479,13 @@ if (!string.IsNullOrWhiteSpace(job.CronExpression))
             <p>
                 Because this strategy updates <span class="code-inline">job.Status</span>, make sure the <span class="code-inline">JobStatus</span> enum/field from Section 03 is present.
             </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#retry-record">Copy</button>
+<pre id="retry-record"><code class="language-csharp">// JobRecord additions for advanced retry tracking
+public int FailureCount { get; set; }
+public string LastFailureReason { get; set; }
+public DateTime? LastFailureTime { get; set; }</code></pre>
+            </div>
             <p>
                 Swap the simple retry body from section 01 with a call to the helper below:
             </p>
@@ -553,9 +545,72 @@ if (!string.IsNullOrWhiteSpace(job.CronExpression))
             </p>
         </section>
 
+        <section id="observability">
+            <div class="section-tag">06 · Observability</div>
+            <h2>Telemetry out of the box.</h2>
+            <p class="scenario-note">Optional extension: plug the built-in ActivitySource and Meter into your existing OpenTelemetry pipeline.</p>
+            <p>
+                GUSTO ships an OpenTelemetry <span class="code-inline">ActivitySource</span> and <span class="code-inline">Meter</span> named <span class="code-inline">ByteBard.GUSTO.JobQueue</span>. Hook them into your existing pipeline and the worker immediately emits spans and counters for every batch and job your provider executes.
+            </p>
+            <div class="code-block">
+                <button class="copy-btn" data-copy="#obs-otel">Copy</button>
+<pre id="obs-otel"><code class="language-csharp">// Program.cs
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing
+        .AddSource(GustoTelemetry.ActivitySourceName)
+        .AddAspNetCoreInstrumentation()
+        .AddOtlpExporter())
+    .WithMetrics(metrics => metrics
+        .AddMeter(GustoTelemetry.MeterName)
+        .AddAspNetCoreInstrumentation()
+        .AddOtlpExporter());</code></pre>
+            </div>
+            <p>Metrics published by the worker:</p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Type</th>
+                        <th>Description &amp; Tags</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="code-inline">gusto.jobs.processed</span></td>
+                        <td>Counter</td>
+                        <td>Total successful jobs (<span class="code-inline">job.type</span>, <span class="code-inline">job.method</span>)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">gusto.jobs.failed</span></td>
+                        <td>Counter</td>
+                        <td>Total failed jobs (<span class="code-inline">job.type</span>, <span class="code-inline">job.method</span>, <span class="code-inline">exception.type</span>)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">gusto.job.duration</span></td>
+                        <td>Histogram</td>
+                        <td>Job execution time in ms (<span class="code-inline">job.type</span>, <span class="code-inline">job.method</span>, <span class="code-inline">job.status</span>)</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">gusto.batch.duration</span></td>
+                        <td>Histogram</td>
+                        <td>Batch processing duration</td>
+                    </tr>
+                    <tr>
+                        <td><span class="code-inline">gusto.batch.size</span></td>
+                        <td>Histogram</td>
+                        <td>Number of jobs processed per batch</td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>
+                Tracing emits two spans: <span class="code-inline">ProcessBatch</span> (one per polling cycle) and <span class="code-inline">ExecuteJob</span> (one per job). Use them to correlate queue throughput with handler performance, and extend the meter with your own counters if you need additional signals.
+            </p>
+        </section>
+
         <section id="testing">
-            <div class="section-tag">06 · Testing</div>
+            <div class="section-tag">07 · Testing</div>
             <h2>Deterministic integration tests.</h2>
+            <p class="scenario-note">Optional extension: use the built-in test barriers to run the worker in-process without sleeps.</p>
             <p>
                 The library ships with test barriers built in, so you can run the worker in-process without flakiness. Set <span class="code-inline">BatchStartBarrier</span> to pause the worker right before it drains a batch, and <span class="code-inline">BatchCompletedBarrier</span> to know when the batch is done. This gives you deterministic integration tests without polling.
             </p>
@@ -586,12 +641,71 @@ public async Task JobQueue_ProcessesJobSuccessfully()
 }</code></pre>
             </div>
             <p>
-                Keep barriers confined to tests—they’re static, so always reset them when your test finishes. This pattern makes GUSTO easy to exercise in CI without resorting to sleeps or polling loops.
+                Keep barriers confined to tests—they’re static, so always reset them (e.g., set them back to <span class="code-inline">null</span>) when your test finishes. This pattern makes GUSTO easy to exercise in CI without resorting to sleeps or polling loops.
+            </p>
+        </section>
+
+        <section id="faq">
+            <div class="section-tag">08 · FAQ</div>
+            <h2>FAQ &amp; comparison.</h2>
+            <h3>What does GUSTO stand for?</h3>
+            <p>
+                GUSTO is the <strong>G</strong>eneric <strong>U</strong>tility for <strong>S</strong>cheduling &amp; <strong>T</strong>ask <strong>O</strong>rchestration. The name reflects the library’s goal: ship a worker, let you own everything else.
+            </p>
+            <h3>Why build another job runner?</h3>
+            <p>
+                Existing runners hide orchestration behind filters, triggers, or custom DSLs. GUSTO keeps the worker loop simple and hands storage orchestration back to your C# code—no hidden magic, no framework migrations when requirements change.
+            </p>
+            <h3>How does it compare?</h3>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Project</th>
+                        <th>Extension model</th>
+                        <th>Type safety</th>
+                        <th>Operational feel</th>
+                        <th>Best when…</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>GUSTO</strong></td>
+                        <td>Implement two interfaces; add helpers for batching/continuations</td>
+                        <td>Expression enqueue keeps jobs strongly typed</td>
+                        <td>You control storage, retries, logging</td>
+                        <td>You want to extend behavior with plain C# and own the data model</td>
+                    </tr>
+                    <tr>
+                        <td>Hangfire</td>
+                        <td>Dashboard filters &amp; attributes</td>
+                        <td>Strongly-typed expression enqueue (similar to GUSTO)</td>
+                        <td>Easy start, complex filters get dense</td>
+                        <td>You want a hosted dashboard and shared storage</td>
+                    </tr>
+                    <tr>
+                        <td>Quartz.NET</td>
+                        <td>Triggers, calendars, listeners</td>
+                        <td>IoC friendly but verbose scheduling API</td>
+                        <td>Powerful—also heavyweight</td>
+                        <td>You need enterprise-grade calendars and cluster scheduling</td>
+                    </tr>
+                    <tr>
+                        <td>TickerQ</td>
+                        <td>Pipeline-based timers</td>
+                        <td>Strings for dispatch</td>
+                        <td>Minimal overhead, limited orchestration</td>
+                        <td>You need lightweight distributed timers without custom storage</td>
+                    </tr>
+                </tbody>
+            </table>
+            <h3>What is expected from a <span class="code-inline">GetBatchAsync</span> implementation?</h3>
+            <p>
+                The worker calls your <span class="code-inline">GetBatchAsync</span> every poll and passes a <span class="code-inline">JobSearchParams</span> with a <span class="code-inline">Match</span> predicate that enforces <strong>not complete</strong>, <strong>ready to run</strong>, and <strong>not expired</strong>. You can apply additional filters or ordering (tenancy, priority, status flags) before returning the records, but make sure to honor the provided predicate and the <span class="code-inline">Limit</span>. Returning fewer items than requested is fine; returning jobs that fail the predicate will cause the worker to skip them and log warnings.
             </p>
         </section>
 
         <footer>
-            Built on ByteBard.GUSTO · Storage-owned orchestration since 2024
+            Built on ByteBard.GUSTO · No more plugin based JobRunner since 2024
         </footer>
     </main>
 
