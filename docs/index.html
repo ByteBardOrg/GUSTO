@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Do it with GUSTO</title>
+    <title>GUSTO - Lightweight .NET Background Job Runner | Customize to Your Heart's Content</title>
     <meta name="description" content="GUSTO is a lightweight .NET background job runner that gives you the worker while letting you own storage, orchestration, and extensions such as batching, continuations, cron, retries, observability, and testing." />
     <meta name="keywords" content="GUSTO, .NET job runner, background jobs, batching, continuations, cron, retries, OpenTelemetry, ByteBard, job queue, background service" />
-    <meta property="og:title" content="Do it with GUSTO" />
-    <meta property="og:description" content="Sample-driven guide for extending the GUSTO job runner: start with the stock worker, then bolt on batching, continuations, cron scheduling, retries, observability, and testing helpers." />
+    <meta property="og:title" content="GUSTO - Lightweight .NET Background Job Runner" />
+    <meta property="og:description" content="GUSTO is a lightweight .NET background job runner that gives you the worker while letting you own storage, orchestration, and extensions such as batching, continuations, cron, retries, observability, and testing." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://github.com/ByteBardOrg/GUSTO" />
     <meta property="og:image" content="https://github.com/ByteBardOrg/GUSTO/raw/main/assets/social-card.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Do it with GUSTO" />
-    <meta name="twitter:description" content="Guided scenarios for extending the GUSTO job runner with batching, continuations, cron, retries, observability, and testing techniques." />
+    <meta name="twitter:title" content="GUSTO - Lightweight .NET Background Job Runner" />
+    <meta name="twitter:description" content="GUSTO is a lightweight .NET background job runner that gives you the worker while letting you own storage, orchestration, and extensions such as batching, continuations, cron, retries, observability, and testing." />
     <meta name="twitter:image" content="https://github.com/ByteBardOrg/GUSTO/raw/main/assets/social-card.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,8 +44,8 @@
 
     <main>
         <header class="hero">
-            <div class="section-tag">Own the data, use the worker</div>
-            <h1>Customize GUSTO without touching the worker loop.</h1>
+            <div class="section-tag">Probably the most straightforward job runner for .NET</div>
+            <h1>A .NET job runner built for customization.</h1>
             <p>
                 This is probably the most flexible and easy to understand job runner out there. Implement an <span class="code-inline">IJobStorageRecord</span> and an
                 <span class="code-inline">IJobStorageProvider</span>, then the library’s hosted worker does the rest. Out of the box you get a WYSIWYG background queue: enqueue work, the worker runs it, that’s it.
@@ -196,8 +196,8 @@ builder.Services.AddGusto&lt;JobRecord, ExampleJobStorageProvider&gt;(
 }</code></pre>
             </div>
             <p>
-                Every other scenario on this page extends or calls back into this provider. You never touch the worker loop; you simply
-                change what the worker reads and writes.
+                Every other scenario on this page extends or calls back into this provider. The built-in worker stays the same; you simply
+                change what it reads and writes.
             </p>
         </section>
 
@@ -663,7 +663,7 @@ public async Task JobQueue_ProcessesJobSuccessfully()
             </p>
             <h3>Why build another job runner?</h3>
             <p>
-                Existing runners hide orchestration behind filters, triggers, or custom DSLs. GUSTO keeps the worker loop simple and hands storage orchestration back to your C# code—no hidden magic, no framework migrations when requirements change.
+                Existing runners hide orchestration behind filters, triggers, or custom DSLs. GUSTO keeps the built-in worker simple and hands storage orchestration back to your C# code—no hidden magic, no framework migrations when requirements change.
             </p>
             <h3>How does it compare?</h3>
             <table class="comparison-table">
