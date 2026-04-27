@@ -11,6 +11,7 @@ A lightweight background job processing library for .NET. GUSTO provides a simpl
 - **Concurrent Processing**: Configurable parallel job execution
 - **Job Scheduling**: Schedule jobs for future execution
 - **Failure Handling**: Built-in retry logic with customizable strategies
+- **Cooperative Cancellation**: Handler `CancellationToken` parameters receive worker cancellation for shutdown and execution timeouts
 - **OpenTelemetry Support**: Built-in metrics and distributed tracing
 - **Easy Testing**: Test hooks for integration testing without polling
 
@@ -169,6 +170,8 @@ public class UserController : ControllerBase
 - **Concurrency**: Max parallel jobs (default: Environment.ProcessorCount)
 - **PollInterval**: Polling frequency (default: 10 seconds)
 - **JobExecutionTimeout**: Max runtime for a single job execution before it's treated as a failure and passed to `OnHandlerExecutionFailureAsync` (default: 5 minutes)
+
+If a job handler method includes a `CancellationToken` parameter, GUSTO supplies an execution token that is canceled on host shutdown or when `JobExecutionTimeout` is reached.
 
 ## Advanced Patterns
 

@@ -41,6 +41,7 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
         var methodCallExpression = (MethodCallExpression)expression;
         var method = methodCallExpression.Method;
         var arguments = methodCallExpression.Arguments.Select(arg => Expression.Lambda(arg).Compile().DynamicInvoke()).ToArray();
+        arguments = NormalizeCancellationTokenArguments(method, arguments);
     
         Type targetType = methodCallExpression.Object switch
         {
@@ -61,5 +62,31 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
         };
         
         return record;
+    }
+
+    private static object?[] NormalizeCancellationTokenArguments(System.Reflection.MethodInfo method, object?[] arguments)
+    {
+        var parameters = method.GetParameters();
+        var length = Math.Min(arguments.Length, parameters.Length);
+
+        if (length == 0)
+        {
+            return arguments;
+        }
+
+        object?[]? normalizedArguments = null;
+
+        for (var i = 0; i < length; i++)
+        {
+            if (parameters[i].ParameterType != typeof(CancellationToken))
+            {
+                continue;
+            }
+
+            normalizedArguments ??= (object?[])arguments.Clone();
+            normalizedArguments[i] = default(CancellationToken);
+        }
+
+        return normalizedArguments ?? arguments;
     }
 }

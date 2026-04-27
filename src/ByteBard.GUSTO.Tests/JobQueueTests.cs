@@ -20,11 +20,18 @@ public class JobQueueTests
     private interface ITestJob
     {
         Task DoSomethingAsync(string input);
+
+        Task DoSomethingWithCancellationAsync(string input, CancellationToken cancellationToken);
     }
     
     private class TestJob : ITestJob
     {
         public virtual Task DoSomethingAsync(string input)
+        {
+            return Task.CompletedTask;
+        }
+
+        public virtual Task DoSomethingWithCancellationAsync(string input, CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
         }
@@ -213,6 +220,38 @@ public class JobQueueTests
         // Act & Assert
         await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await jobQueue.EnqueueAsync<TestJob>(job => job.DoSomethingAsync("test"), null, cancellationToken));
+    }
+
+    [Fact]
+    public async Task EnqueueAsync_WhenMethodHasCancellationToken_StoresDefaultCancellationToken()
+    {
+        // Arrange
+        var storageProvider = Substitute.For<IJobStorageProvider<TestJobStorageRecord>>();
+        var jobQueue = new JobQueue<TestJobStorageRecord>(storageProvider);
+        TestJobStorageRecord? capturedRecord = null;
+        storageProvider
+            .When(x => x.StoreJobAsync(Arg.Any<TestJobStorageRecord>(), Arg.Any<CancellationToken>()))
+            .Do(ci => capturedRecord = ci.Arg<TestJobStorageRecord>());
+
+        using var queuedTokenSource = new CancellationTokenSource();
+        queuedTokenSource.Cancel();
+
+        // Act
+        await jobQueue.EnqueueAsync<TestJob>(
+            job => job.DoSomethingWithCancellationAsync("test", queuedTokenSource.Token),
+            null,
+            CancellationToken.None);
+
+        // Assert
+        Assert.NotNull(capturedRecord);
+        var args = JsonConvert.DeserializeObject<object[]>(
+            capturedRecord.ArgumentsJson,
+            new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All });
+
+        Assert.Equal(2, args.Length);
+        Assert.Equal("test", args[0]?.ToString());
+        var cancellationToken = Assert.IsType<CancellationToken>(args[1]);
+        Assert.False(cancellationToken.CanBeCanceled);
     }
 
     [Fact]

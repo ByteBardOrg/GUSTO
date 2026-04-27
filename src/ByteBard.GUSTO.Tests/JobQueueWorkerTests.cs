@@ -59,6 +59,32 @@ public class JobQueueWorkerTests
             semaphoreSlim.Release();
             await Task.Delay(Timeout.InfiniteTimeSpan);
         }
+
+        public virtual async Task ExecuteAsyncObserveCancellation(string input, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                semaphoreSlim.Release();
+                throw;
+            }
+        }
+
+        public virtual async Task ExecuteAsyncObserveOptionalCancellation(string input, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                semaphoreSlim.Release();
+                throw;
+            }
+        }
     }
 
     private GustoConfig GetTestConfig() => new GustoConfig
@@ -318,6 +344,133 @@ public class JobQueueWorkerTests
             await AssertEventuallyAsync(
                 () => Assert.True(Volatile.Read(ref getBatchCallCount) >= 2),
                 TimeSpan.FromSeconds(2));
+
+            await AssertEventuallyAsync(
+                () =>
+                {
+                    storage.Received().OnHandlerExecutionFailureAsync(
+                        hangingJob,
+                        Arg.Is<Exception>(ex => ex is TimeoutException),
+                        Arg.Any<CancellationToken>());
+                },
+                TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenJobHasCancellationToken_OverridesSerializedTokenWithExecutionToken()
+    {
+        // Arrange
+        using var queuedTokenSource = new CancellationTokenSource();
+        queuedTokenSource.Cancel();
+
+        var hangingJob = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(TestableJob).AssemblyQualifiedName,
+            MethodName = nameof(TestableJob.ExecuteAsyncObserveCancellation),
+            ArgumentsJson = JsonConvert.SerializeObject(
+                new object[] { "observe", queuedTokenSource.Token },
+                new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var storage = Substitute.For<IJobStorageProvider<TestJob>>();
+        storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<TestJob> { hangingJob }, new List<TestJob>());
+
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
+
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
+        var config = Options.Create(new GustoConfig
+        {
+            Concurrency = 1,
+            PollInterval = TimeSpan.FromMilliseconds(10),
+            BatchSize = 1,
+            JobExecutionTimeout = TimeSpan.FromMilliseconds(150)
+        });
+
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
+
+        // Act
+        TestableJob.CreateSemaphore();
+        var startedAt = DateTime.UtcNow;
+        await worker.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var canceledInHandler = await TestableJob.semaphoreSlim.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.True(canceledInHandler);
+
+            var elapsed = DateTime.UtcNow - startedAt;
+            Assert.True(elapsed >= TimeSpan.FromMilliseconds(100));
+
+            await AssertEventuallyAsync(
+                () =>
+                {
+                    storage.Received().OnHandlerExecutionFailureAsync(
+                        hangingJob,
+                        Arg.Is<Exception>(ex => ex is TimeoutException),
+                        Arg.Any<CancellationToken>());
+                },
+                TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenOptionalCancellationTokenArgumentMissing_InjectsExecutionToken()
+    {
+        // Arrange
+        var hangingJob = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(TestableJob).AssemblyQualifiedName,
+            MethodName = nameof(TestableJob.ExecuteAsyncObserveOptionalCancellation),
+            ArgumentsJson = JsonConvert.SerializeObject(
+                new object[] { "observe" },
+                new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var storage = Substitute.For<IJobStorageProvider<TestJob>>();
+        storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<TestJob> { hangingJob }, new List<TestJob>());
+
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
+
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
+        var config = Options.Create(new GustoConfig
+        {
+            Concurrency = 1,
+            PollInterval = TimeSpan.FromMilliseconds(10),
+            BatchSize = 1,
+            JobExecutionTimeout = TimeSpan.FromMilliseconds(150)
+        });
+
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
+
+        // Act
+        TestableJob.CreateSemaphore();
+        await worker.StartAsync(CancellationToken.None);
+
+        try
+        {
+            var canceledInHandler = await TestableJob.semaphoreSlim.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.True(canceledInHandler);
 
             await AssertEventuallyAsync(
                 () =>

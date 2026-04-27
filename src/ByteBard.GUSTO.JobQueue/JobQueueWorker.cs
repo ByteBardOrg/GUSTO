@@ -208,7 +208,8 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
             var arguments = JsonConvert.DeserializeObject<object[]>(storedJob.ArgumentsJson, _settings);
             var jobInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, jobType);
             var method = jobType.GetMethod(storedJob.MethodName);
-            var handlerTask = (Task)method.Invoke(jobInstance, arguments);
+            var invocationArguments = ApplyExecutionCancellationTokenArguments(method, arguments, timeoutCts.Token);
+            var handlerTask = (Task)method.Invoke(jobInstance, invocationArguments);
 
             await handlerTask.WaitAsync(timeoutCts.Token);
 
@@ -230,6 +231,63 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         {
             await RecordJobFailureAsync(storedJob, storage, ex, jobStopwatch, jobActivity, ct);
         }
+    }
+
+    private static object[] ApplyExecutionCancellationTokenArguments(
+        System.Reflection.MethodInfo method,
+        object[]? arguments,
+        CancellationToken executionCancellationToken)
+    {
+        var providedArguments = arguments ?? Array.Empty<object>();
+        var parameters = method.GetParameters();
+        if (parameters.Length == 0)
+        {
+            return providedArguments;
+        }
+
+        object[]? invocationArguments = null;
+
+        if (providedArguments.Length < parameters.Length)
+        {
+            var canExpandWithOptionalDefaults = true;
+            for (var i = providedArguments.Length; i < parameters.Length; i++)
+            {
+                if (!parameters[i].IsOptional)
+                {
+                    canExpandWithOptionalDefaults = false;
+                    break;
+                }
+            }
+
+            if (canExpandWithOptionalDefaults)
+            {
+                invocationArguments = new object[parameters.Length];
+                Array.Copy(providedArguments, invocationArguments, providedArguments.Length);
+
+                for (var i = providedArguments.Length; i < parameters.Length; i++)
+                {
+                    invocationArguments[i] = Type.Missing;
+                }
+            }
+        }
+
+        var effectiveArguments = invocationArguments ?? providedArguments;
+        var length = Math.Min(effectiveArguments.Length, parameters.Length);
+
+        object[]? overriddenArguments = null;
+
+        for (var i = 0; i < length; i++)
+        {
+            if (parameters[i].ParameterType != typeof(CancellationToken))
+            {
+                continue;
+            }
+
+            overriddenArguments ??= (object[])effectiveArguments.Clone();
+            overriddenArguments[i] = executionCancellationToken;
+        }
+
+        return overriddenArguments ?? effectiveArguments;
     }
     
 
