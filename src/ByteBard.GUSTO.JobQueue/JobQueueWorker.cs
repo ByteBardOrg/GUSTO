@@ -101,6 +101,10 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
                 await ProcessBatchCycleAsync(parallelOptions, stoppingToken);
                 SignalBatchCompletedIfSet();
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Unexpected failure in JobQueueWorker.");
@@ -195,6 +199,8 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
         using var scope = _serviceProvider.CreateScope();
         var storage = scope.ServiceProvider.GetRequiredService<IJobStorageProvider<TStorageRecord>>();
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(_config.JobExecutionTimeout);
 
         try
         {
@@ -202,10 +208,23 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
             var arguments = JsonConvert.DeserializeObject<object[]>(storedJob.ArgumentsJson, _settings);
             var jobInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, jobType);
             var method = jobType.GetMethod(storedJob.MethodName);
-            await (Task)method.Invoke(jobInstance, arguments);
+            var handlerTask = (Task)method.Invoke(jobInstance, arguments);
+
+            await handlerTask.WaitAsync(timeoutCts.Token);
 
             await storage.MarkJobAsCompleteAsync(storedJob, ct);
             RecordJobSuccess(storedJob, jobStopwatch, jobActivity);
+        }
+        catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
+        {
+            var timeoutException = new TimeoutException(
+                $"Job execution timed out after {_config.JobExecutionTimeout}.",
+                ex);
+            await RecordJobFailureAsync(storedJob, storage, timeoutException, jobStopwatch, jobActivity, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -27,7 +27,7 @@ public class JobQueueWorkerTests
 
         public static void CreateSemaphore()
         {
-            semaphoreSlim = new SemaphoreSlim(0, 1);
+            semaphoreSlim = new SemaphoreSlim(0, int.MaxValue);
         }
             
         public virtual Task ExecuteAsyncSuccess(string input)
@@ -53,14 +53,48 @@ public class JobQueueWorkerTests
                 semaphoreSlim.Release();
             }
         }
+
+        public virtual async Task ExecuteAsyncHang(string input)
+        {
+            semaphoreSlim.Release();
+            await Task.Delay(Timeout.InfiniteTimeSpan);
+        }
     }
 
     private GustoConfig GetTestConfig() => new GustoConfig
     {
         Concurrency = 1,
         PollInterval = TimeSpan.FromMilliseconds(10),
-        BatchSize = 1
+        BatchSize = 1,
+        JobExecutionTimeout = TimeSpan.FromSeconds(30)
     };
+
+    private static async Task AssertEventuallyAsync(Action assertion, TimeSpan timeout)
+    {
+        var started = DateTime.UtcNow;
+        Exception? lastException = null;
+
+        while (DateTime.UtcNow - started < timeout)
+        {
+            try
+            {
+                assertion();
+                return;
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                await Task.Delay(25);
+            }
+        }
+
+        if (lastException != null)
+        {
+            throw lastException;
+        }
+
+        assertion();
+    }
 
     [Fact]
     public async Task ExecuteAsync_WhenNoJobsAvailable_DelaysAndContinuesLoop()
@@ -160,6 +194,145 @@ public class JobQueueWorkerTests
         await worker.StopAsync(CancellationToken.None);
         // Assert
         await storage.Received().OnHandlerExecutionFailureAsync(job, Arg.Any<Exception>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenOneJobHangs_OtherJobsCompleteAndHangingJobTimesOut()
+    {
+        // Arrange
+        var hangingJob = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(TestableJob).AssemblyQualifiedName,
+            MethodName = nameof(TestableJob.ExecuteAsyncHang),
+            ArgumentsJson = JsonConvert.SerializeObject(new object[] { "hang" }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var healthyJob = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(TestableJob).AssemblyQualifiedName,
+            MethodName = nameof(TestableJob.ExecuteAsyncSuccess),
+            ArgumentsJson = JsonConvert.SerializeObject(new object[] { "ok" }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var storage = Substitute.For<IJobStorageProvider<TestJob>>();
+        storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
+            .Returns(new List<TestJob> { hangingJob, healthyJob }, new List<TestJob>());
+
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
+
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
+        var config = Options.Create(new GustoConfig
+        {
+            Concurrency = 2,
+            PollInterval = TimeSpan.FromMilliseconds(10),
+            BatchSize = 2,
+            JobExecutionTimeout = TimeSpan.FromMilliseconds(100)
+        });
+
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
+
+        // Act
+        TestableJob.CreateSemaphore();
+        await worker.StartAsync(CancellationToken.None);
+
+        try
+        {
+            await AssertEventuallyAsync(
+                () =>
+                {
+                    storage.Received().MarkJobAsCompleteAsync(healthyJob, Arg.Any<CancellationToken>());
+                },
+                TimeSpan.FromSeconds(2));
+
+            await AssertEventuallyAsync(
+                () =>
+                {
+                    storage.Received().OnHandlerExecutionFailureAsync(
+                        hangingJob,
+                        Arg.Is<Exception>(ex => ex is TimeoutException),
+                        Arg.Any<CancellationToken>());
+                },
+                TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WhenJobTimesOut_WorkerContinuesPollingNextCycles()
+    {
+        // Arrange
+        var hangingJob = new TestJob
+        {
+            TrackingId = Guid.NewGuid(),
+            JobType = typeof(TestableJob).AssemblyQualifiedName,
+            MethodName = nameof(TestableJob.ExecuteAsyncHang),
+            ArgumentsJson = JsonConvert.SerializeObject(new object[] { "hang" }),
+            ExecuteAfter = DateTime.UtcNow,
+            IsComplete = false
+        };
+
+        var getBatchCallCount = 0;
+        var storage = Substitute.For<IJobStorageProvider<TestJob>>();
+        storage.GetBatchAsync(Arg.Any<JobSearchParams<TestJob>>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                var callCount = Interlocked.Increment(ref getBatchCallCount);
+                IEnumerable<TestJob> jobs = callCount == 1
+                    ? new List<TestJob> { hangingJob }
+                    : new List<TestJob>();
+                return Task.FromResult(jobs);
+            });
+
+        var services = new ServiceCollection();
+        services.AddScoped<IJobStorageProvider<TestJob>>(_ => storage);
+        var serviceProvider = services.BuildServiceProvider();
+
+        var logger = Substitute.For<ILogger<JobQueueWorker<TestJob>>>();
+        var config = Options.Create(new GustoConfig
+        {
+            Concurrency = 1,
+            PollInterval = TimeSpan.FromMilliseconds(10),
+            BatchSize = 1,
+            JobExecutionTimeout = TimeSpan.FromMilliseconds(100)
+        });
+
+        var worker = new JobQueueWorker<TestJob>(serviceProvider, config, logger);
+
+        // Act
+        TestableJob.CreateSemaphore();
+        await worker.StartAsync(CancellationToken.None);
+
+        try
+        {
+            await AssertEventuallyAsync(
+                () => Assert.True(Volatile.Read(ref getBatchCallCount) >= 2),
+                TimeSpan.FromSeconds(2));
+
+            await AssertEventuallyAsync(
+                () =>
+                {
+                    storage.Received().OnHandlerExecutionFailureAsync(
+                        hangingJob,
+                        Arg.Is<Exception>(ex => ex is TimeoutException),
+                        Arg.Any<CancellationToken>());
+                },
+                TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            await worker.StopAsync(CancellationToken.None);
+        }
     }
 
     [Fact]

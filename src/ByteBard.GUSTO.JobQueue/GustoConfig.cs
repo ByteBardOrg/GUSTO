@@ -9,4 +9,6 @@ public class GustoConfig
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(10);
 
     public int Concurrency { get; set; } = Environment.ProcessorCount;
+
+    public TimeSpan JobExecutionTimeout { get; set; } = TimeSpan.FromMinutes(5);
 }

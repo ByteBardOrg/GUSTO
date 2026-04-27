@@ -111,7 +111,8 @@ services.AddGusto<JobRecord, InMemoryJobStorageProvider>(
   "Gusto": {
     "BatchSize": 50,
     "Concurrency": 8,
-    "PollInterval": "00:00:10"
+    "PollInterval": "00:00:10",
+    "JobExecutionTimeout": "00:05:00"
   }
 }
 ```
@@ -167,6 +168,7 @@ public class UserController : ControllerBase
 - **BatchSize**: Jobs to process per batch (default: 10)
 - **Concurrency**: Max parallel jobs (default: Environment.ProcessorCount)
 - **PollInterval**: Polling frequency (default: 10 seconds)
+- **JobExecutionTimeout**: Max runtime for a single job execution before it's treated as a failure and passed to `OnHandlerExecutionFailureAsync` (default: 5 minutes)
 
 ## Advanced Patterns
 
