@@ -20,6 +20,15 @@ Most extensions use three public pieces:
 
 The worker remains unchanged. That is valuable when the rules are specific to your application, but it also means your team owns their correctness and migrations.
 
+## Complete provider examples
+
+- [In-memory provider](../build/first-job.md#3-implement-the-five-operations) implements the complete contract without database dependencies.
+- [EF Core provider](./ef-core-provider.md) includes a complete record, `DbContext`, provider, and registration.
+
+The remaining examples show changes made to one of these baseline providers.
+
+The [batch continuation example](./batch-continuations.md) shows how two extensions can be combined without adding behavior to the GUSTO runner.
+
 ## Example prerequisites
 
 Before adding orchestration, establish:

@@ -15,8 +15,17 @@ The record is also an extension point. Add fields for anything your application 
 ```csharp
 public sealed class JobRecord : IJobStorageRecord
 {
-    // IJobStorageRecord fields...
+    // Required by IJobStorageRecord
+    public Guid TrackingId { get; set; }
+    public DateTime CreatedOn { get; set; }
+    public DateTime? ExecuteAfter { get; set; }
+    public DateTime? ExpireOn { get; set; }
+    public bool IsComplete { get; set; }
+    public string JobType { get; set; } = null!;
+    public string MethodName { get; set; } = null!;
+    public string ArgumentsJson { get; set; } = null!;
 
+    // Application-defined fields
     public string? TenantId { get; set; }
     public int Priority { get; set; }
     public int AttemptCount { get; set; }

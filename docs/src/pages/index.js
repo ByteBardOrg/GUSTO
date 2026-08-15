@@ -2,13 +2,8 @@ import clsx from 'clsx';
 import Link from '@docusaurus/Link';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
+import CodeBlock from '@theme/CodeBlock';
 import styles from './index.module.css';
-
-const facts = [
-  ['1 worker', 'A hosted service polls, resolves, and invokes jobs.'],
-  ['2 interfaces', 'Your record and provider define persistence.'],
-  ['5 methods', 'Store, fetch, complete, cancel, and handle failure.'],
-];
 
 export default function Home() {
   return (
@@ -34,20 +29,20 @@ export default function Home() {
               </Link>
             </div>
           </div>
-          <aside className={styles.contract} aria-label="GUSTO execution flow">
-            <span>EXECUTION FLOW</span>
-            <code>expression → record → your store → worker → method</code>
-            <p>The record and provider are public extension points implemented by your application.</p>
-          </aside>
         </header>
 
-        <section className={styles.facts} aria-label="Project facts">
-          {facts.map(([title, detail]) => (
-            <article key={title}>
-              <Heading as="h2">{title}</Heading>
-              <p>{detail}</p>
-            </article>
-          ))}
+        <section className={styles.example} aria-labelledby="enqueue-example">
+          <p className={styles.eyebrow}>Enqueue a job</p>
+          <Heading as="h2" id="enqueue-example">A normal, strongly typed method call.</Heading>
+          <div className={styles.codeExample}>
+            <CodeBlock language="csharp">
+{`await jobQueue.EnqueueAsync<EmailJobs>(jobs =>
+    jobs.SendWelcomeEmailAsync(userId));`}
+            </CodeBlock>
+          </div>
+          <p>
+            GUSTO stores the call through your provider and executes it in the background.
+          </p>
         </section>
 
         <section className={styles.choice}>

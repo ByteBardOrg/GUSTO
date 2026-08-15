@@ -6,15 +6,29 @@ description: Implement explicit retry and terminal failure behavior in the stora
 
 When a handler throws or times out, GUSTO logs the exception and calls `OnHandlerExecutionFailureAsync`. The provider must leave the record in a deliberate state.
 
-## Failure fields
+## Add failure fields to the job record
 
-The base interface has no attempt counter or failure status. Add them to your record:
+The base interface has no attempt counter or failure status. Add them to your concrete record:
 
 ```csharp
-public int AttemptCount { get; set; }
-public DateTime? LastFailedOn { get; set; }
-public string? LastFailure { get; set; }
-public JobState State { get; set; } = JobState.Ready;
+public sealed class JobRecord : IJobStorageRecord
+{
+    // Required by IJobStorageRecord
+    public Guid TrackingId { get; set; }
+    public DateTime CreatedOn { get; set; }
+    public DateTime? ExecuteAfter { get; set; }
+    public DateTime? ExpireOn { get; set; }
+    public bool IsComplete { get; set; }
+    public string JobType { get; set; } = null!;
+    public string MethodName { get; set; } = null!;
+    public string ArgumentsJson { get; set; } = null!;
+
+    // Added for retry and failure behavior
+    public int AttemptCount { get; set; }
+    public DateTime? LastFailedOn { get; set; }
+    public string? LastFailure { get; set; }
+    public JobState State { get; set; } = JobState.Ready;
+}
 
 public enum JobState
 {
@@ -29,7 +43,9 @@ These are application fields, not GUSTO requirements. A simpler provider can use
 
 ## Retry limit and delay
 
-```csharp
+Replace `OnHandlerExecutionFailureAsync` in your storage provider with the retry policy. This example uses the `db` field from the [EF Core provider](../extend/ef-core-provider.md).
+
+```csharp title="EfCoreJobStorageProvider.cs"
 public async Task OnHandlerExecutionFailureAsync(
     JobRecord record,
     Exception exception,

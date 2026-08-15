@@ -20,7 +20,14 @@ module.exports = {
       type: 'category',
       label: 'Examples',
       collapsible: false,
-      items: ['extend/overview', 'extend/batches', 'extend/continuations', 'extend/recurring-jobs'],
+      items: [
+        'extend/overview',
+        'extend/ef-core-provider',
+        'extend/batches',
+        'extend/continuations',
+        'extend/batch-continuations',
+        'extend/recurring-jobs',
+      ],
     },
     {
       type: 'category',
