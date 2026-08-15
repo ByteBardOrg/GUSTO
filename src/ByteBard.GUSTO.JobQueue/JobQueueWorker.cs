@@ -22,11 +22,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
 
     private static readonly Counter<long> JobsProcessedCounter = Meter.CreateCounter<long>(
         "gusto.jobs.processed",
-        description: "Total number of jobs processed successfully");
-
-    private static readonly Counter<long> JobsFailedCounter = Meter.CreateCounter<long>(
-        "gusto.jobs.failed",
-        description: "Total number of jobs that failed");
+        description: "Total number of jobs processed");
 
     private static readonly Histogram<double> JobExecutionDuration = Meter.CreateHistogram<double>(
         "gusto.job.duration",
@@ -171,7 +167,10 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         ParallelOptions parallelOptions)
     {
         using var batchActivity = ActivitySource.StartActivity("ProcessBatch");
-        batchActivity?.SetTag("batch.size", jobStorageRecords.Count);
+        if (batchActivity is { IsAllDataRequested: true })
+        {
+            batchActivity?.SetTag("batch.size", jobStorageRecords.Count);
+        }
 
         var batchStopwatch = Stopwatch.StartNew();
         BatchSizeHistogram.Record(jobStorageRecords.Count);
@@ -191,9 +190,13 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         CancellationToken ct)
     {
         using var jobActivity = ActivitySource.StartActivity("ExecuteJob");
-        jobActivity?.SetTag("job.tracking_id", storedJob.TrackingId);
-        jobActivity?.SetTag("job.type", storedJob.JobType);
-        jobActivity?.SetTag("job.method", storedJob.MethodName);
+        if (jobActivity is { IsAllDataRequested: true })
+        {
+            jobActivity?.SetTag("job.tracking_id", storedJob.TrackingId);
+            jobActivity?.SetTag("job.type", storedJob.JobType);
+            jobActivity?.SetTag("job.method", storedJob.MethodName);
+        }
+        
 
         var jobStopwatch = Stopwatch.StartNew();
 
@@ -300,6 +303,7 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
             new KeyValuePair<string, object?>("job.status", "success"));
         JobsProcessedCounter.Add(1,
             new KeyValuePair<string, object?>("job.type", storedJob.JobType),
+            new KeyValuePair<string, object?>("job.status", "success"),
             new KeyValuePair<string, object?>("job.method", storedJob.MethodName));
 
         jobActivity?.SetStatus(ActivityStatusCode.Ok);
@@ -318,10 +322,10 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
             new KeyValuePair<string, object?>("job.type", storedJob.JobType),
             new KeyValuePair<string, object?>("job.method", storedJob.MethodName),
             new KeyValuePair<string, object?>("job.status", "failed"));
-        JobsFailedCounter.Add(1,
+        JobsProcessedCounter.Add(1,
             new KeyValuePair<string, object?>("job.type", storedJob.JobType),
             new KeyValuePair<string, object?>("job.method", storedJob.MethodName),
-            new KeyValuePair<string, object?>("exception.type", ex.GetType().Name));
+            new KeyValuePair<string, object?>("job.status", "failed"));
 
         jobActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
         jobActivity?.AddException(ex);
