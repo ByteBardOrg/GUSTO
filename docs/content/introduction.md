@@ -11,7 +11,7 @@ GUSTO is a small background job worker for .NET. It serializes a method call int
 | | |
 | --- | --- |
 | Package | [`ByteBard.GUSTO`](https://www.nuget.org/packages/ByteBard.GUSTO) |
-| Runtime targets | .NET 8 and .NET 9 |
+| Runtime targets | .NET 8, .NET 9, and .NET 10 |
 | Source | [`ByteBardOrg/GUSTO`](https://github.com/ByteBardOrg/GUSTO) |
 | License | [MIT](https://github.com/ByteBardOrg/GUSTO/blob/main/LICENSE) |
 | Maintainer | ByteBard |

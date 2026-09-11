@@ -12,7 +12,7 @@ This first queue uses memory so the GUSTO contract is easy to see. It is suitabl
 dotnet add package ByteBard.GUSTO
 ```
 
-GUSTO currently targets .NET 8 and .NET 9.
+GUSTO currently targets .NET 8, .NET 9, and .NET 10.
 
 ## 2. Define the record
 

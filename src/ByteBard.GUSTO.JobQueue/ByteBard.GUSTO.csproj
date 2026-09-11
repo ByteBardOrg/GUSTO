@@ -3,7 +3,7 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <LangVersion>13</LangVersion>
-        <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
         <Title>ByteBard.GUSTO</Title>
         <Description>A lightweight background job processing library for .NET. GUSTO provides a simple way to queue and execute background tasks with just a background service and two interfaces to implement.</Description>
         <Copyright>ByteBard</Copyright>
