@@ -22,10 +22,15 @@ Exporter packages and endpoint configuration are supplied by your application.
 
 | Activity | Scope | Attributes |
 | --- | --- | --- |
+| `EnqueueJob` (`Producer`) | Record construction and storage | `job.tracking_id`, `job.type`, `job.method` |
 | `ProcessBatch` | One non-empty batch | `batch.size` |
-| `ExecuteJob` | One invocation | `job.tracking_id`, `job.type`, `job.method` |
+| `ExecuteJob` (`Consumer`) | One invocation | `job.tracking_id`, `job.type`, `job.method` |
 
 Failed job activities have error status and record the exception. Successful activities have OK status.
+
+GUSTO automatically stores the enqueue activity's W3C `traceparent` and `tracestate` with the serialized arguments. Every `ExecuteJob` attempt starts an independent root trace and includes an `ActivityLink` to that persisted remote context. Retries therefore create distinct execution traces linked to the same enqueue activity. `ProcessBatch` remains an independent operational trace; jobs without valid persisted context start roots with no links and never inherit the batch activity. Baggage is not persisted.
+
+Propagation uses `System.Diagnostics` and does not require GUSTO to take a dependency on the OpenTelemetry SDK. If no listener is registered, an ambient valid W3C activity is still persisted, and job execution remains functional without tracing.
 
 ## Metrics
 

@@ -86,9 +86,19 @@ public Task<Guid> EnqueueAsync(
     Expression<Func<Task>> methodCall,
     DateTime? executeAfter = null,
     CancellationToken cancellationToken = default);
+
+public Task<Guid> EnqueueAsync<T>(
+    EnqueueOptions options,
+    Expression<Func<T, Task>> methodCall,
+    CancellationToken cancellationToken = default);
+
+public Task<Guid> EnqueueAsync(
+    EnqueueOptions options,
+    Expression<Func<Task>> methodCall,
+    CancellationToken cancellationToken = default);
 ```
 
-Both overloads return the generated tracking ID after `StoreJobAsync` completes.
+All overloads return the generated tracking ID after `StoreJobAsync` completes. `EnqueueOptions` exposes `DateTime? ExecuteAfter` and `ActivityContext? ParentContext`. Existing overloads forward their schedule to the options path; the options-first shape avoids ambiguity with existing calls that pass `null` for `executeAfter`.
 
 The queue also exposes three `ConstructRecordFromExpression` overloads and its `StorageProvider`. These members allow application extension methods to construct records, set application-specific fields, and store them.
 
@@ -98,4 +108,4 @@ The worker passes `Match`, `Limit`, and `CancellationToken` to `GetBatchAsync`. 
 
 ## Telemetry constants
 
-`GustoTelemetry.ActivitySourceName` and `GustoTelemetry.MeterName` both contain `ByteBard.GUSTO.JobQueue`. Use these constants rather than copying the string into OpenTelemetry configuration.
+`GustoTelemetry.ActivitySourceName` and `GustoTelemetry.MeterName` both contain `ByteBard.GUSTO.JobQueue`. Register both with the application's tracing and metrics pipelines, and use these constants rather than copying the string.

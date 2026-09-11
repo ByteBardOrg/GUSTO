@@ -44,6 +44,20 @@ await queue.EnqueueAsync<ReminderJobs>(
 
 This schedules one execution. See the [recurring job example](../extend/recurring-jobs.md) for an application-defined recurring schedule.
 
+Scheduling and explicit trace parenting can also be supplied with `EnqueueOptions`:
+
+```csharp
+await queue.EnqueueAsync(
+    new EnqueueOptions
+    {
+        ExecuteAfter = DateTime.UtcNow.AddHours(2),
+        ParentContext = upstreamActivityContext
+    },
+    (ReminderJobs jobs) => jobs.SendAsync(reminderId));
+```
+
+`ParentContext` is optional. By default, enqueueing uses `Activity.Current`; an explicit context controls the producer activity and the context propagated to the worker. The API accepts `ActivityContext`, not raw trace header strings. GUSTO propagates W3C trace context automatically but does not persist baggage.
+
 ## Cancellation tokens
 
 If a job method accepts a `CancellationToken`, pass `default` when enqueueing it:
@@ -69,4 +83,6 @@ The provider can delete the record or update its application-specific state.
 
 :::note Persisted jobs and code changes
 Pending jobs store the target type, method name, and serialized arguments. Keep those methods compatible while matching jobs remain in storage.
+
+New records store arguments in a versioned GUSTO envelope. Workers continue to accept the legacy top-level argument array, so existing persisted jobs remain executable.
 :::

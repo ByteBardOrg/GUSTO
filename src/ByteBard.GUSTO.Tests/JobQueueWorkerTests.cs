@@ -552,7 +552,7 @@ public class JobQueueWorkerTests
         // Assert
         Assert.NotNull(capturedJob);
         await storage.Received().MarkJobAsCompleteAsync(capturedJob, Arg.Any<CancellationToken>());
-        Assert.Equal("from real queue", JsonConvert.DeserializeObject<string[]>(capturedJob.ArgumentsJson)[0]);
+        Assert.Equal("from real queue", Newtonsoft.Json.Linq.JObject.Parse(capturedJob.ArgumentsJson)["arguments"]!.ToObject<string[]>()![0]);
     }
 
     public interface IScopedTestService

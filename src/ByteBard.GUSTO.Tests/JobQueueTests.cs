@@ -5,6 +5,9 @@ using ByteBard.GUSTO;
 
 public class JobQueueTests
 {
+    private static Newtonsoft.Json.Linq.JToken GetArguments(string json)
+        => Newtonsoft.Json.Linq.JObject.Parse(json)["arguments"]!;
+
     public class TestJobStorageRecord : IJobStorageRecord
     {
         public Guid TrackingId { get; set; }
@@ -55,7 +58,7 @@ public class JobQueueTests
                 record.TrackingId == trackingId &&
                 record.MethodName == "DoSomethingAsync" &&
                 record.JobType == typeof(TestJob).AssemblyQualifiedName &&
-                JsonConvert.DeserializeObject<string[]>(record.ArgumentsJson)[0] == "hello" &&
+                GetArguments(record.ArgumentsJson).ToObject<string[]>()![0] == "hello" &&
                 !record.IsComplete),
             cancellationToken);
     }
@@ -78,7 +81,7 @@ public class JobQueueTests
                 record.TrackingId == trackingId &&
                 record.MethodName == "DoSomethingAsync" &&
                 record.JobType == typeof(TestJob).AssemblyQualifiedName &&
-                JsonConvert.DeserializeObject<string[]>(record.ArgumentsJson)[0] == "hello" &&
+                GetArguments(record.ArgumentsJson).ToObject<string[]>()![0] == "hello" &&
                 !record.IsComplete),
             cancellationToken);
     }
@@ -101,7 +104,7 @@ public class JobQueueTests
                 record.TrackingId == trackingId &&
                 record.MethodName == "DoSomethingAsync" &&
                 record.JobType == typeof(TestJob).AssemblyQualifiedName &&
-                JsonConvert.DeserializeObject<string[]>(record.ArgumentsJson)[0] == "hello" &&
+                GetArguments(record.ArgumentsJson).ToObject<string[]>()![0] == "hello" &&
                 !record.IsComplete),
             cancellationToken);
     }
@@ -173,10 +176,10 @@ public class JobQueueTests
                 record.TrackingId == trackingId &&
                 record.MethodName == "ProcessAsync" &&
                 record.JobType == typeof(JobWithMultipleParameters).AssemblyQualifiedName &&
-                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson).Length == 3 &&
-                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson)[0].ToString() == "hello" &&
-                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson)[1].ToString() == "42" &&
-                JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson)[2].ToString() == "True"),
+                GetArguments(record.ArgumentsJson).ToObject<object[]>()!.Length == 3 &&
+                GetArguments(record.ArgumentsJson).ToObject<object[]>()![0].ToString() == "hello" &&
+                GetArguments(record.ArgumentsJson).ToObject<object[]>()![1].ToString() == "42" &&
+                GetArguments(record.ArgumentsJson).ToObject<object[]>()![2].ToString() == "True"),
             cancellationToken);
     }
 
@@ -201,7 +204,9 @@ public class JobQueueTests
         Assert.Equal(executeAfter, record.ExecuteAfter);
         Assert.True(record.CreatedOn <= DateTime.UtcNow);
 
-        var args = JsonConvert.DeserializeObject<object[]>(record.ArgumentsJson);
+        var envelope = Newtonsoft.Json.Linq.JObject.Parse(record.ArgumentsJson);
+        Assert.Equal(1, envelope.Value<int>("version"));
+        var args = envelope["arguments"]!.ToObject<object[]>();
         Assert.Single(args);
         Assert.Equal("test", args[0]);
     }
@@ -244,9 +249,8 @@ public class JobQueueTests
 
         // Assert
         Assert.NotNull(capturedRecord);
-        var args = JsonConvert.DeserializeObject<object[]>(
-            capturedRecord.ArgumentsJson,
-            new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All });
+        var args = GetArguments(capturedRecord.ArgumentsJson).ToObject<object[]>(
+            JsonSerializer.Create(new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All }));
 
         Assert.Equal(2, args.Length);
         Assert.Equal("test", args[0]?.ToString());

@@ -166,7 +166,10 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         List<TStorageRecord> jobStorageRecords,
         ParallelOptions parallelOptions)
     {
-        using var batchActivity = ActivitySource.StartActivity("ProcessBatch");
+        using var batchActivity = ActivitySource.StartActivity(
+            "ProcessBatch",
+            ActivityKind.Internal,
+            default(ActivityContext));
         if (batchActivity is { IsAllDataRequested: true })
         {
             batchActivity?.SetTag("batch.size", jobStorageRecords.Count);
@@ -189,29 +192,51 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         TStorageRecord storedJob,
         CancellationToken ct)
     {
-        using var jobActivity = ActivitySource.StartActivity("ExecuteJob");
-        if (jobActivity is { IsAllDataRequested: true })
+        // Job traces are linked only to their persisted producer context. Suppress ProcessBatch
+        // even when this source has no listener, so handler instrumentation cannot inherit it.
+        var batchActivity = Activity.Current;
+        Activity.Current = null;
+        try
         {
-            jobActivity?.SetTag("job.tracking_id", storedJob.TrackingId);
-            jobActivity?.SetTag("job.type", storedJob.JobType);
-            jobActivity?.SetTag("job.method", storedJob.MethodName);
+            await ExecuteJobIsolatedAsync(storedJob, ct);
         }
-        
+        finally
+        {
+            Activity.Current = batchActivity;
+        }
+    }
 
+    private async Task ExecuteJobIsolatedAsync(TStorageRecord storedJob, CancellationToken ct)
+    {
         var jobStopwatch = Stopwatch.StartNew();
-
         using var scope = _serviceProvider.CreateScope();
         var storage = scope.ServiceProvider.GetRequiredService<IJobStorageProvider<TStorageRecord>>();
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeoutCts.CancelAfter(_config.JobExecutionTimeout);
+        Activity? jobActivity = null;
 
         try
         {
+            var payload = JobPayloadSerializer.Deserialize(storedJob.ArgumentsJson, _settings);
+            var linkedContext = TryParseRemoteContext(payload);
+            jobActivity = ActivitySource.StartActivity(
+                "ExecuteJob",
+                ActivityKind.Consumer,
+                default(ActivityContext),
+                links: linkedContext is ActivityContext context
+                    ? new[] { new ActivityLink(context) }
+                    : null);
+            if (jobActivity is { IsAllDataRequested: true })
+            {
+                jobActivity.SetTag("job.tracking_id", storedJob.TrackingId);
+                jobActivity.SetTag("job.type", storedJob.JobType);
+                jobActivity.SetTag("job.method", storedJob.MethodName);
+            }
+
             var jobType = Type.GetType(storedJob.JobType);
-            var arguments = JsonConvert.DeserializeObject<object[]>(storedJob.ArgumentsJson, _settings);
             var jobInstance = ActivatorUtilities.CreateInstance(scope.ServiceProvider, jobType);
             var method = jobType.GetMethod(storedJob.MethodName);
-            var invocationArguments = ApplyExecutionCancellationTokenArguments(method, arguments, timeoutCts.Token);
+            var invocationArguments = ApplyExecutionCancellationTokenArguments(method, payload.Arguments, timeoutCts.Token);
             var handlerTask = (Task)method.Invoke(jobInstance, invocationArguments);
 
             await handlerTask.WaitAsync(timeoutCts.Token);
@@ -234,6 +259,22 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         {
             await RecordJobFailureAsync(storedJob, storage, ex, jobStopwatch, jobActivity, ct);
         }
+        finally
+        {
+            jobActivity?.Dispose();
+        }
+    }
+
+    private static ActivityContext? TryParseRemoteContext(JobPayload payload)
+    {
+        if (string.IsNullOrWhiteSpace(payload.TraceParent))
+        {
+            return null;
+        }
+
+        return ActivityContext.TryParse(payload.TraceParent, payload.TraceState, isRemote: true, out var context)
+            ? context
+            : null;
     }
 
     private static object[] ApplyExecutionCancellationTokenArguments(

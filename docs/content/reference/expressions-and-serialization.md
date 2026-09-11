@@ -34,6 +34,8 @@ Every `CancellationToken` argument is replaced with `default` before serializati
 
 Only your application should be able to write stored job arguments. Do not accept arbitrary serialized job records from untrusted sources.
 
+`ArgumentsJson` for new jobs is a versioned GUSTO-owned JSON envelope containing `version`, `arguments`, and optional W3C `traceparent` and `tracestate` values. Argument serialization retains Newtonsoft.Json type metadata so heterogeneous argument arrays can be reconstructed. The worker also recognizes the earlier top-level JSON array format. Unsupported envelope versions are reported through the provider's normal execution-failure callback. Trace baggage is not stored.
+
 Persisted jobs depend on the job type, method, and argument types. They can fail after changes such as:
 
 - renaming or moving the job type;
