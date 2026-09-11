@@ -30,6 +30,8 @@ Failed job activities have error status and record the exception. Successful act
 
 GUSTO automatically stores the enqueue activity's W3C `traceparent` and `tracestate` with the serialized arguments. Every `ExecuteJob` attempt starts an independent root trace and includes an `ActivityLink` to that persisted remote context. Retries therefore create distinct execution traces linked to the same enqueue activity. `ProcessBatch` remains an independent operational trace; jobs without valid persisted context start roots with no links and never inherit the batch activity. Baggage is not persisted.
 
+`EnqueueAsync` is the preferred path and creates the full `EnqueueJob` producer activity around construction and storage. Direct `ConstructRecordFromExpression` calls do not enqueue or store a record and therefore do not create that activity. They still persist either a supplied valid `ActivityContext` or, on the existing overloads, a valid ambient W3C `Activity.Current` context. Supplying an explicit invalid/default or `null` context intentionally persists no context rather than falling back to ambient.
+
 Propagation uses `System.Diagnostics` and does not require GUSTO to take a dependency on the OpenTelemetry SDK. If no listener is registered, an ambient valid W3C activity is still persisted, and job execution remains functional without tracing.
 
 ## Metrics

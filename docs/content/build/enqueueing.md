@@ -58,6 +58,8 @@ await queue.EnqueueAsync(
 
 `ParentContext` is optional. By default, enqueueing uses `Activity.Current`; an explicit context controls the producer activity and the context propagated to the worker. The API accepts `ActivityContext`, not raw trace header strings. GUSTO propagates W3C trace context automatically but does not persist baggage.
 
+Prefer `EnqueueAsync` for normal use: it creates the full `EnqueueJob` producer span, constructs the record, and stores it. Extension methods can instead call `ConstructRecordFromExpression`; this only constructs a record and neither creates `EnqueueJob` nor stores anything. Its existing overloads persist a valid ambient W3C context, while overloads accepting `ActivityContext?` persist that explicit valid context. An explicit `null`, default, or otherwise invalid context means no trace context and does not fall back to ambient.
+
 ## Cancellation tokens
 
 If a job method accepts a `CancellationToken`, pass `default` when enqueueing it:

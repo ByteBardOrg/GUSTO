@@ -335,7 +335,7 @@ GUSTO includes built-in OpenTelemetry support for metrics and distributed tracin
 - **ProcessBatch** - Span for entire batch with `batch.size` tag
 - **ExecuteJob** - Consumer span for individual jobs with `job.tracking_id`, `job.type`, `job.method` tags
 
-GUSTO automatically persists W3C `traceparent` and `tracestate` in its versioned argument envelope. Every execution attempt is a new root trace with an `ActivityLink` to the persisted enqueue context, so retries remain independent while retaining correlation. Use `EnqueueOptions.ParentContext` to supply an explicit `ActivityContext`; otherwise `Activity.Current` is used. Baggage is not persisted. Legacy records whose `ArgumentsJson` is a top-level array remain supported, and processing works when no activity listener is configured.
+GUSTO automatically persists W3C `traceparent` and `tracestate` in its versioned argument envelope. Every execution attempt is a new root trace with an `ActivityLink` to the persisted enqueue context, so retries remain independent while retaining correlation. Use `EnqueueOptions.ParentContext` to supply an explicit `ActivityContext`; otherwise `Activity.Current` is used. `EnqueueAsync` is preferred because it creates the full producer span and stores the record. Direct `ConstructRecordFromExpression` calls only construct a record and do not create `EnqueueJob` or store it; they persist a supplied valid context, or a valid ambient W3C context on the existing overloads. Explicit `null` or invalid/default context means no persisted context without ambient fallback. Baggage is not persisted. Legacy records whose `ArgumentsJson` is a top-level array remain supported, and processing works when no activity listener is configured.
 
 ### Configuration
 

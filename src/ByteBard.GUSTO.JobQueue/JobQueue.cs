@@ -46,7 +46,7 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
         try
         {
             var propagationContext = GetPropagationContext(activity, options.ParentContext);
-            var record = ConstructRecordFromExpression(expression, options.ExecuteAfter, propagationContext);
+            var record = ConstructRecord(expression, options.ExecuteAfter, propagationContext);
             if (activity is { IsAllDataRequested: true })
             {
                 activity.SetTag("job.tracking_id", record.TrackingId);
@@ -65,13 +65,25 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
             throw;
         }
     }
-    public TStorageRecord ConstructRecordFromExpression<T>(Expression<Func<T, Task>> methodCall, DateTime? executeAfter) => ConstructRecordFromExpression(methodCall.Body, executeAfter);
-    public TStorageRecord ConstructRecordFromExpression(Expression<Func<Task>> methodCall, DateTime? executeAfter) => ConstructRecordFromExpression(methodCall.Body, executeAfter);
+    public TStorageRecord ConstructRecordFromExpression<T>(Expression<Func<T, Task>> methodCall, DateTime? executeAfter)
+        => ConstructRecord(methodCall.Body, executeAfter, GetAmbientPropagationContext());
+
+    public TStorageRecord ConstructRecordFromExpression<T>(Expression<Func<T, Task>> methodCall, DateTime? executeAfter, ActivityContext? propagationContext)
+        => ConstructRecord(methodCall.Body, executeAfter, ValidatePropagationContext(propagationContext));
+
+    public TStorageRecord ConstructRecordFromExpression(Expression<Func<Task>> methodCall, DateTime? executeAfter)
+        => ConstructRecord(methodCall.Body, executeAfter, GetAmbientPropagationContext());
+
+    public TStorageRecord ConstructRecordFromExpression(Expression<Func<Task>> methodCall, DateTime? executeAfter, ActivityContext? propagationContext)
+        => ConstructRecord(methodCall.Body, executeAfter, ValidatePropagationContext(propagationContext));
     
     public TStorageRecord ConstructRecordFromExpression(Expression expression, DateTime? executeAfter)
-        => ConstructRecordFromExpression(expression, executeAfter, null);
+        => ConstructRecord(expression, executeAfter, GetAmbientPropagationContext());
 
-    private TStorageRecord ConstructRecordFromExpression(Expression expression, DateTime? executeAfter, ActivityContext? propagationContext)
+    public TStorageRecord ConstructRecordFromExpression(Expression expression, DateTime? executeAfter, ActivityContext? propagationContext)
+        => ConstructRecord(expression, executeAfter, ValidatePropagationContext(propagationContext));
+
+    private TStorageRecord ConstructRecord(Expression expression, DateTime? executeAfter, ActivityContext? propagationContext)
     {
         var methodCallExpression = (MethodCallExpression)expression;
         var method = methodCallExpression.Method;
@@ -94,7 +106,7 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
             MethodName = method.Name,
             ArgumentsJson = JobPayloadSerializer.Serialize(
                 arguments,
-                propagationContext is ActivityContext context ? $"00-{context.TraceId}-{context.SpanId}-{(byte)context.TraceFlags:x2}" : null,
+                propagationContext is ActivityContext context ? FormatTraceParent(context) : null,
                 propagationContext?.TraceState,
                 _settings),
             IsComplete = false
@@ -115,14 +127,25 @@ public class JobQueue<TStorageRecord> where TStorageRecord : IJobStorageRecord, 
             return IsValid(parent) ? parent : null;
         }
 
+        return GetAmbientPropagationContext();
+    }
+
+    private static ActivityContext? GetAmbientPropagationContext()
+    {
         var ambient = Activity.Current;
         return ambient is { IdFormat: ActivityIdFormat.W3C } && IsValid(ambient.Context)
             ? ambient.Context
             : null;
     }
 
+    private static ActivityContext? ValidatePropagationContext(ActivityContext? context)
+        => context is ActivityContext value && IsValid(value) ? value : null;
+
     private static bool IsValid(ActivityContext context)
         => context.TraceId != default && context.SpanId != default;
+
+    private static string FormatTraceParent(ActivityContext context)
+        => $"00-{context.TraceId}-{context.SpanId}-{(byte)context.TraceFlags:x2}";
 
     private static object?[] NormalizeCancellationTokenArguments(System.Reflection.MethodInfo method, object?[] arguments)
     {

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Linq.Expressions;
 using ByteBard.GUSTO;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -80,6 +81,80 @@ public class TracingTests
         var persisted = ActivityContext.Parse(
             JObject.Parse(record!.ArgumentsJson).Value<string>("traceparent")!, null);
         Assert.Equal(ambient.Context, persisted);
+    }
+
+    [Fact]
+    public void DirectConstructionPersistsAmbientContextWithoutCreatingProducerActivityOrStoring()
+    {
+        var storage = Substitute.For<IJobStorageProvider<Record>>();
+        var queue = new JobQueue<Record>(storage);
+        var stopped = new ConcurrentBag<Activity>();
+        using var listener = Listen(source => source.Name == GustoTelemetry.ActivitySourceName, stopped.Add);
+        using var ambient = new Activity("request")
+            .SetParentId("00-11111111111111111111111111111111-2222222222222222-01")
+            .Start();
+        ambient.TraceStateString = "ambient=value";
+
+        var record = queue.ConstructRecordFromExpression<Handler>(
+            handler => handler.Run("ambient"), null);
+
+        var envelope = JObject.Parse(record.ArgumentsJson);
+        var persisted = ActivityContext.Parse(
+            envelope.Value<string>("traceparent")!, envelope.Value<string>("tracestate"));
+        Assert.Equal(ambient.Context, persisted);
+        Assert.Equal("ambient=value", persisted.TraceState);
+        Assert.DoesNotContain(stopped, activity => activity.OperationName == "EnqueueJob");
+        storage.DidNotReceiveWithAnyArgs().StoreJobAsync(default!, default);
+    }
+
+    [Fact]
+    public void DirectConstructionExplicitContextOverridesAmbientAndPreservesTraceState()
+    {
+        var storage = Substitute.For<IJobStorageProvider<Record>>();
+        var queue = new JobQueue<Record>(storage);
+        using var ambient = new Activity("request").SetIdFormat(ActivityIdFormat.W3C).Start();
+        var explicitContext = ActivityContext.Parse(
+            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01", "explicit=value");
+
+        var record = queue.ConstructRecordFromExpression<Handler>(
+            handler => handler.Run("explicit"), null, explicitContext);
+
+        var envelope = JObject.Parse(record.ArgumentsJson);
+        var persisted = ActivityContext.Parse(
+            envelope.Value<string>("traceparent")!, envelope.Value<string>("tracestate"));
+        Assert.Equal(explicitContext, persisted);
+        Assert.NotEqual(ambient.Context, persisted);
+        Assert.Equal("explicit=value", envelope.Value<string>("tracestate"));
+    }
+
+    [Fact]
+    public void DirectConstructionWithoutAmbientContextPersistsNoContext()
+    {
+        Assert.Null(Activity.Current);
+        var queue = new JobQueue<Record>(Substitute.For<IJobStorageProvider<Record>>());
+        var handler = new Handler();
+
+        var record = queue.ConstructRecordFromExpression(
+            () => handler.Run("none"), null, (ActivityContext?)null);
+
+        var envelope = JObject.Parse(record.ArgumentsJson);
+        Assert.Null(envelope["traceparent"]);
+        Assert.Null(envelope["tracestate"]);
+    }
+
+    [Fact]
+    public void DirectConstructionInvalidExplicitContextDoesNotFallBackToAmbient()
+    {
+        var queue = new JobQueue<Record>(Substitute.For<IJobStorageProvider<Record>>());
+        using var ambient = new Activity("request").SetIdFormat(ActivityIdFormat.W3C).Start();
+        Expression<Func<Task>> methodCall = () => new Handler().Run("invalid");
+
+        var record = queue.ConstructRecordFromExpression(
+            methodCall.Body, null, default(ActivityContext));
+
+        var envelope = JObject.Parse(record.ArgumentsJson);
+        Assert.Null(envelope["traceparent"]);
+        Assert.Null(envelope["tracestate"]);
     }
 
     [Fact]

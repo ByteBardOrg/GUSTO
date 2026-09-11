@@ -100,7 +100,27 @@ public Task<Guid> EnqueueAsync(
 
 All overloads return the generated tracking ID after `StoreJobAsync` completes. `EnqueueOptions` exposes `DateTime? ExecuteAfter` and `ActivityContext? ParentContext`. Existing overloads forward their schedule to the options path; the options-first shape avoids ambiguity with existing calls that pass `null` for `executeAfter`.
 
-The queue also exposes three `ConstructRecordFromExpression` overloads and its `StorageProvider`. These members allow application extension methods to construct records, set application-specific fields, and store them.
+The queue also exposes its `StorageProvider` and these record-construction APIs:
+
+```csharp
+public TStorageRecord ConstructRecordFromExpression<T>(
+    Expression<Func<T, Task>> methodCall, DateTime? executeAfter);
+public TStorageRecord ConstructRecordFromExpression<T>(
+    Expression<Func<T, Task>> methodCall, DateTime? executeAfter,
+    ActivityContext? propagationContext);
+public TStorageRecord ConstructRecordFromExpression(
+    Expression<Func<Task>> methodCall, DateTime? executeAfter);
+public TStorageRecord ConstructRecordFromExpression(
+    Expression<Func<Task>> methodCall, DateTime? executeAfter,
+    ActivityContext? propagationContext);
+public TStorageRecord ConstructRecordFromExpression(
+    Expression expression, DateTime? executeAfter);
+public TStorageRecord ConstructRecordFromExpression(
+    Expression expression, DateTime? executeAfter,
+    ActivityContext? propagationContext);
+```
+
+The two-argument forms persist a valid ambient W3C `Activity.Current` context. The three-argument forms use only the supplied valid context; `null` or an invalid/default context intentionally persists no trace context. These methods only construct a record: they do not create an `EnqueueJob` activity or store the record. Prefer `EnqueueAsync` for normal enqueueing and its full producer span. The construction APIs support extension methods that set application-specific fields before storing records themselves.
 
 ## `JobSearchParams<TStorageRecord>`
 
