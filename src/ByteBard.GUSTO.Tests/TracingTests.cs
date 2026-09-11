@@ -158,7 +158,7 @@ public class TracingTests
     }
 
     [Fact]
-    public async Task WorkerCreatesRootConsumerLinkedToPersistedContextAndTraceState()
+    public async Task WorkerParentsConsumerToPersistedContextAndTraceState()
     {
         var parent = ActivityContext.Parse(
             "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01", "vendor=value");
@@ -170,17 +170,16 @@ public class TracingTests
 
         var execute = Assert.Single(stopped, x => x.OperationName == "ExecuteJob");
         Assert.Equal(ActivityKind.Consumer, execute.Kind);
-        Assert.Equal(default, execute.ParentSpanId);
-        Assert.NotEqual(parent.TraceId, execute.TraceId);
-        var link = Assert.Single(execute.Links);
-        var expectedLinkContext = new ActivityContext(
-            parent.TraceId, parent.SpanId, parent.TraceFlags, "vendor=value", isRemote: true);
-        Assert.Equal(expectedLinkContext, link.Context);
+        Assert.Equal(parent.TraceId, execute.TraceId);
+        Assert.Equal(parent.SpanId, execute.ParentSpanId);
+        Assert.True(execute.HasRemoteParent);
+        Assert.Equal("vendor=value", execute.TraceStateString);
+        Assert.Empty(execute.Links);
         Assert.Equal(ActivityStatusCode.Ok, execute.Status);
     }
 
     [Fact]
-    public async Task EnqueueAndExecuteCorrelateThroughActivityLink()
+    public async Task EnqueueAndExecuteCorrelateThroughPersistedParent()
     {
         Record? job = null;
         var enqueueStorage = Substitute.For<IJobStorageProvider<Record>>();
@@ -196,20 +195,14 @@ public class TracingTests
 
         var producer = Assert.Single(activities, x => x.OperationName == "EnqueueJob");
         var consumer = Assert.Single(activities, x => x.OperationName == "ExecuteJob");
-        Assert.Equal(default, consumer.ParentSpanId);
-        Assert.NotEqual(producer.TraceId, consumer.TraceId);
-        var link = Assert.Single(consumer.Links);
-        var expectedLinkContext = new ActivityContext(
-            producer.TraceId,
-            producer.SpanId,
-            producer.ActivityTraceFlags,
-            producer.TraceStateString,
-            isRemote: true);
-        Assert.Equal(expectedLinkContext, link.Context);
+        Assert.Equal(producer.TraceId, consumer.TraceId);
+        Assert.Equal(producer.SpanId, consumer.ParentSpanId);
+        Assert.True(consumer.HasRemoteParent);
+        Assert.Empty(consumer.Links);
     }
 
     [Fact]
-    public async Task RetryAttemptsHaveDistinctRootsLinkedToSameEnqueueContext()
+    public async Task RetryAttemptsShareTraceParentedToPersistedContext()
     {
         var enqueueContext = ActivityContext.Parse(
             "00-cccccccccccccccccccccccccccccccc-dddddddddddddddd-01", "retry=original");
@@ -222,18 +215,13 @@ public class TracingTests
 
         var attempts = activities.Where(x => x.OperationName == "ExecuteJob").ToArray();
         Assert.Equal(2, attempts.Length);
-        Assert.NotEqual(attempts[0].TraceId, attempts[1].TraceId);
-        var expectedLinkContext = new ActivityContext(
-            enqueueContext.TraceId,
-            enqueueContext.SpanId,
-            enqueueContext.TraceFlags,
-            "retry=original",
-            isRemote: true);
         Assert.All(attempts, attempt =>
         {
-            Assert.Equal(default, attempt.ParentSpanId);
-            var link = Assert.Single(attempt.Links);
-            Assert.Equal(expectedLinkContext, link.Context);
+            Assert.Equal(enqueueContext.TraceId, attempt.TraceId);
+            Assert.Equal(enqueueContext.SpanId, attempt.ParentSpanId);
+            Assert.Equal("retry=original", attempt.TraceStateString);
+            Assert.True(attempt.HasRemoteParent);
+            Assert.Empty(attempt.Links);
         });
     }
 

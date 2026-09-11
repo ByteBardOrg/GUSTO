@@ -192,8 +192,9 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         TStorageRecord storedJob,
         CancellationToken ct)
     {
-        // Job traces are linked only to their persisted producer context. Suppress ProcessBatch
-        // even when this source has no listener, so handler instrumentation cannot inherit it.
+        // Job executions continue the trace of their persisted producer context. Suppress
+        // ProcessBatch even when this source has no listener, so handler instrumentation cannot
+        // inherit the batch span.
         var batchActivity = Activity.Current;
         Activity.Current = null;
         try
@@ -218,14 +219,11 @@ public class JobQueueWorker<TStorageRecord> : BackgroundService
         try
         {
             var payload = JobPayloadSerializer.Deserialize(storedJob.ArgumentsJson, _settings);
-            var linkedContext = TryParseRemoteContext(payload);
+            var parentContext = TryParseRemoteContext(payload) ?? default;
             jobActivity = ActivitySource.StartActivity(
                 "ExecuteJob",
                 ActivityKind.Consumer,
-                default(ActivityContext),
-                links: linkedContext is ActivityContext context
-                    ? new[] { new ActivityLink(context) }
-                    : null);
+                parentContext);
             if (jobActivity is { IsAllDataRequested: true })
             {
                 jobActivity.SetTag("job.tracking_id", storedJob.TrackingId);
